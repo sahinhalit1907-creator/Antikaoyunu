@@ -411,6 +411,20 @@ pre.sql{margin:0;padding:14px;border-radius:12px;background:#0a0c10;border:1px s
 .inv-display{margin-top:6px}
 @media (prefers-reduced-motion:reduce){.walker{animation:none;left:calc(10% + var(--y,0px)*6)}}
 
+/* ---------- Müşteri siparişleri ---------- */
+.orders{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));gap:14px}
+.order{display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:16px;background:linear-gradient(160deg,#241a2a,#161019);border:1px solid var(--border2);position:relative}
+.order::before{content:"";position:absolute;left:14px;right:14px;top:0;height:3px;border-radius:0 0 4px 4px;background:linear-gradient(90deg,#c9953f,#f3d9a0,#c9953f)}
+.o-who{display:flex;align-items:center;gap:10px}
+.o-who>div:nth-child(2){flex:1;min-width:0;display:flex;flex-direction:column}
+.o-who small{color:var(--muted);font-size:12px}
+.o-budget{text-align:right}
+.o-budget small{display:block}
+.o-budget b{font-size:22px;font-weight:800;color:var(--gold2);font-variant-numeric:tabular-nums}
+.order .bubble{margin:0}
+.o-hint{color:var(--muted);font-size:11.5px}
+.order-tag{margin:6px 0;padding:6px 10px;border-radius:10px;background:rgba(227,180,95,.14);border:1px dashed rgba(227,180,95,.55);color:#f6dca0;font-size:12.5px}
+
 </style>
 </head>
 <body>
@@ -674,7 +688,7 @@ const Bus = {
    status alanları içerir. Böylece Supabase'e (PostgreSQL) birebir taşınabilir.
    Online sürümde yalnızca bu katmanın içi supabase.from('tablo')... ile değişir.
    ===================================================================== */
-const TABLES = ['players', 'npcs', 'catalog_items', 'items', 'market_listings', 'offers', 'auctions', 'bids', 'transactions', 'shops', 'shop_offers'];
+const TABLES = ['players', 'npcs', 'catalog_items', 'items', 'market_listings', 'offers', 'auctions', 'bids', 'transactions', 'shops', 'shop_offers', 'orders'];
 
 const SCHEMA_SQL = `-- Supabase / PostgreSQL şeması — oyundaki veri modelinin karşılığı
 create extension if not exists "pgcrypto";
@@ -783,7 +797,7 @@ create table bids (
 create table transactions (               -- oyuncunun para defteri
   id               uuid primary key default gen_random_uuid(),
   player_id        uuid not null references players(id),
-  type             text not null check (type in ('purchase','sale','dealer_sale','collector_sale','appraisal','museum','shop','bailout')),
+  type             text not null check (type in ('purchase','sale','dealer_sale','collector_sale','order_sale','appraisal','museum','shop','bailout')),
   amount           numeric(12,2) not null,   -- (+) gelir, (−) gider
   profit           numeric(12,2),
   item_instance_id uuid references items(id),
@@ -812,6 +826,24 @@ create table shop_offers (                -- sergilenen eşya için koleksiyoncu
   status           text not null check (status in ('open','accepted','declined','expired','withdrawn')),
   expires_ms       bigint,
   created_at       timestamptz not null default now()
+);
+
+create table orders (                    -- müşteri siparişleri (bütçeli antika talepleri)
+  id             uuid primary key default gen_random_uuid(),
+  customer_id    text not null,
+  kind           text not null check (kind in ('item','category')),
+  item_id        text references catalog_items(id),   -- kind = 'item'
+  category       text,                                -- kind = 'category'
+  min_rarity     text,
+  min_condition  text not null,
+  need_genuine   boolean not null default true,       -- belgeli orijinal şart mı
+  budget         numeric(12,2) not null,
+  line           text,
+  status         text not null check (status in ('open','done','expired','declined')),
+  expires_ms     bigint,
+  delivered_item_id uuid references items(id),
+  paid           numeric(12,2),
+  created_at     timestamptz not null default now()
 );
 
 create index on items (owner_id, status);
@@ -1086,7 +1118,7 @@ const Game = {
   /* ------------------------------ istatistik & iflas ------------------------------ */
   stats() {
     const tx = DB.find('transactions');
-    const sales = tx.filter(t => t.type === 'sale' || t.type === 'dealer_sale' || t.type === 'collector_sale');
+    const sales = tx.filter(t => t.type === 'sale' || t.type === 'dealer_sale' || t.type === 'collector_sale' || t.type === 'order_sale');
     const inv = this.inventory();
     const balance = this.balance();
     const invValue = inv.reduce((s, i) => s + this.valueFor(i), 0);
@@ -1463,12 +1495,125 @@ Object.assign(Game, {
     return { ok: true };
   },
   shopCatchUp() {   // oyun kapalıyken gelen ziyaretçiler
+    if (!this.openOrders().length) this.newOrder();   // her açılışta bekleyen en az bir müşteri
     const s = this.shop(), ticks = Math.min(SHOP.CATCHUP_TICKS, Math.floor((Date.now() - (s.last_tick_ms || Date.now())) / SHOP.TICK_MS));
     DB.find('shop_offers', o => o.status === 'open').forEach(o => { if (o.expires_ms < Date.now()) DB.update('shop_offers', o.id, { status: 'expired' }); });
     if (ticks < 3 || !this.displayed().length) { DB.update('shops', s.id, { last_tick_ms: Date.now() }); return null; }
     return this.shopTick(ticks, true);
   }
 });
+
+/* =====================================================================
+   MÜŞTERİ SİPARİŞLERİ — müşteri bütçesine göre belirli bir antika ister; uygun fiyata bulup pahalıya sat.
+   Tablo: orders (kind: 'item' = belirli eşya, 'category' = kategori + asgari nadirlik).
+   ===================================================================== */
+const RANKS = ['common', 'uncommon', 'rare', 'epic', 'legendary'], CRANKS = ['poor', 'fair', 'good', 'excellent'];
+const ORDER = { TTL: 9 * 60 * 1000, MAX_OPEN: 3, CHANCE: 0.16 };
+const CUSTOMERS = [
+  { id: 'cus-ayse',   name: 'Ayşe Hanım',      avatar: '👩‍🏫', trait: 'Emekli öğretmen' },
+  { id: 'cus-murat',  name: 'Murat Bey',       avatar: '🧑‍💼', trait: 'İş insanı' },
+  { id: 'cus-lale',   name: 'Lale',            avatar: '👩‍🎨', trait: 'İç mimar' },
+  { id: 'cus-orhan',  name: 'Dr. Orhan',       avatar: '👨‍⚕️', trait: 'Koleksiyoncu doktor' },
+  { id: 'cus-zeynep', name: 'Zeynep',          avatar: '👩‍💻', trait: 'Otel sahibi' },
+  { id: 'cus-feridun', name: 'Feridun Efendi', avatar: '🧓',   trait: 'Eski kitapçı' },
+  { id: 'cus-suna',   name: 'Suna Hanım',      avatar: '👵',   trait: 'Torunlarına hediye alıyor' },
+  { id: 'cus-kerem',  name: 'Kerem',           avatar: '🧑‍🎤', trait: 'Film dekoru yapımcısı' }
+];
+
+Object.assign(Game, {
+  customer(id) { return CUSTOMERS.find(c => c.id === id) || CUSTOMERS[0]; },
+  openOrders() { const now = Date.now(); return DB.find('orders', o => o.status === 'open' && o.expires_ms > now).sort((a, b) => a.expires_ms - b.expires_ms); },
+  expireOrders() {
+    const now = Date.now(); let ch = 0;
+    DB.find('orders', o => o.status === 'open' && o.expires_ms <= now).forEach(o => { DB.update('orders', o.id, { status: 'expired' }); ch++; });
+    const old = DB.find('orders', o => o.status !== 'open').sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(20);
+    old.forEach(o => DB.remove('orders', o.id));
+    return ch;
+  },
+  orderMatch(o, item) {
+    const cat = this.catalogOf(item);
+    if (o.kind === 'item' ? cat.id !== o.item_id : (cat.category !== o.category || RANKS.indexOf(cat.rarity) < RANKS.indexOf(o.min_rarity))) return false;
+    return CRANKS.indexOf(item.condition) >= CRANKS.indexOf(o.min_condition);
+  },
+  orderBlock(o, item) {   // eşleşen eşya teslim edilemiyorsa nedeni
+    if (o.need_genuine && !item.appraised) return 'Müşteri belgeli orijinal istiyor — önce ekspertiz yaptır';
+    if (o.need_genuine && item.authenticity === 'fake') return 'Taklit çıktı, müşteri kabul etmez';
+    return '';
+  },
+  ordersFor(item) { return this.openOrders().filter(o => this.orderMatch(o, item)); },
+  orderPay(o, item) {
+    const bonus = item.appraised && item.authenticity === 'exceptional' ? 0.15 : item.condition === 'excellent' ? 0.08 : 0;
+    return Math.round(o.budget * (1 + bonus));
+  },
+  newOrder(opts) {
+    opts = opts || {};
+    const kind = opts.kind || (Math.random() < 0.55 ? 'item' : 'category');
+    const need = opts.need_genuine != null ? opts.need_genuine : Math.random() < 0.65;
+    const minCond = opts.min_condition || wpick([['poor', 25], ['fair', 35], ['good', 30], ['excellent', 10]]);
+    const cust = opts.customer ? this.customer(opts.customer) : pick(CUSTOMERS), laxity = need ? 1 : 0.75;
+    const row = { customer_id: cust.id, kind, item_id: null, category: null, min_rarity: null, min_condition: minCond, need_genuine: need, budget: 0, line: '', status: 'open', expires_ms: Date.now() + (opts.ttl || ORDER.TTL) };
+    if (kind === 'item') {
+      let cat = opts.item_id && DB.get('catalog_items', opts.item_id);
+      if (!cat) {
+        const inMarket = this.listings().map(l => this.catalogOf(DB.get('items', l.item_instance_id))).filter(c => c && c.rarity !== 'legendary');
+        cat = Math.random() < 0.65 && inMarket.length ? pick(inMarket)
+          : wpick(DB.find('catalog_items', c => c.rarity !== 'legendary').map(c => [c, { common: 3, uncommon: 3, rare: 2, epic: 0.6 }[c.rarity]]));
+      }
+      row.item_id = cat.id;
+      row.budget = niceRound(cat.base_value * COND[minCond].mult * rand(1.35, 1.75) * laxity);
+      row.line = pick([`Torunuma hediye edeceğim bir “${cat.name}” arıyorum.`, `Salonuma çok yakışır: “${cat.name}”. Bulabilir misin?`, `Bana bir “${cat.name}” lazım, bütçem belli.`]);
+    } else {
+      const cat = opts.category || pick(CATEGORIES)[0];
+      const minR = opts.min_rarity || wpick([['common', 40], ['uncommon', 40], ['rare', 20]]);
+      const lo = RANKS.indexOf(minR);
+      let pool = CATALOG.filter(c => c[2] === cat && RANKS.indexOf(c[4]) >= lo && RANKS.indexOf(c[4]) <= Math.min(lo + 1, 2));
+      if (!pool.length) pool = CATALOG.filter(c => c[2] === cat && RANKS.indexOf(c[4]) <= 2);
+      const avg = pool.reduce((s, c) => s + c[5], 0) / pool.length;
+      row.category = cat; row.min_rarity = minR;
+      row.budget = niceRound(avg * COND[minCond].mult * rand(1.15, 1.4) * laxity);
+      row.line = pick([`${cat} alanında ${RARITY[minR].label.toLowerCase()} bir parça arıyorum.`, `Koleksiyonuma bir ${cat} eşyası lazım.`, `${cat} kategorisinden bir şey bul bana, yeter ki ${RARITY[minR].label.toLowerCase()} olsun.`]);
+    }
+    return DB.insert('orders', row);
+  },
+  orderRoll() {
+    this.expireOrders();
+    if (this.openOrders().length >= ORDER.MAX_OPEN) return null;
+    const pts = this.prestige().points;
+    return Math.random() < ORDER.CHANCE + Math.min(0.1, pts / 2000) ? this.newOrder() : null;
+  },
+  fulfillOrder(orderId, itemId) {
+    const o = DB.get('orders', orderId), item = DB.get('items', itemId);
+    if (!o || o.status !== 'open' || o.expires_ms <= Date.now()) return { ok: false, msg: 'Bu sipariş artık geçerli değil.' };
+    if (!item || item.owner_id !== DB.meta.player_id || item.status !== 'inventory') return { ok: false, msg: 'Bu eşya teslim edilemez (envanterinde olmalı).' };
+    if (!this.orderMatch(o, item)) return { ok: false, msg: 'Eşya müşterinin istediğiyle uyuşmuyor.' };
+    const why = this.orderBlock(o, item); if (why) return { ok: false, msg: why + '.' };
+    const cat = this.catalogOf(item), cust = this.customer(o.customer_id), pay = this.orderPay(o, item);
+    DB.update('orders', o.id, { status: 'done', delivered_item_id: item.id, paid: pay });
+    DB.update('items', item.id, { status: 'sold', owner_type: 'npc', owner_id: cust.id, display_slot: null });
+    const profit = pay - (item.acquired_price || 0);
+    this.addTx('order_sale', pay, item.id, cust.id, `${cat.name} → ${cust.name} (sipariş)`, profit);
+    Bus.emit('inventory'); Bus.emit('shop');
+    return { ok: true, pay, profit, cat, cust, bonus: pay - o.budget };
+  },
+  declineOrder(id) {
+    const o = DB.get('orders', id);
+    if (!o || o.status !== 'open') return { ok: false };
+    DB.update('orders', o.id, { status: 'declined' }); Bus.emit('shop'); return { ok: true };
+  }
+});
+
+// sipariş turu: shopTick içinde her tur denenir (vitrin boşken de)
+(function hookOrders() {
+  const base = Game.shopTick;
+  Game.shopTick = function (count, silent) {
+    let fresh = 0;
+    for (let i = 0; i < (count || 1); i++) if (this.orderRoll()) fresh++;
+    const out = base.call(this, count, silent);
+    out.orders = fresh;
+    if (fresh) Bus.emit('shop', out);
+    return out;
+  };
+})();
 
 /* ---------- 05-ui-core.js ---------- */
 /* =====================================================================
@@ -1558,7 +1703,7 @@ function renderNav() {
   const html = TABS.map(t => {
     let extra = '';
     if (t.id === 'inventory' && invCount) extra = `<span class="badge-dot">${invCount}</span>`;
-    if (t.id === 'shop' && Game.openOffers().length) extra = `<span class="badge-dot">${Game.openOffers().length}</span>`;
+    { const k = Game.openOffers().length + Game.openOrders().length; if (t.id === 'shop' && k) extra = `<span class="badge-dot">${k}</span>`; }
     if (t.id === 'auction' && live) extra = '<span class="live-dot" title="Mezat sürüyor"></span>';
     const act = UI.tab === t.id;
     return `<button class="tab ${act ? 'active' : ''}" role="tab" aria-selected="${act}" data-tab="${t.id}"><span class="tab-ico">${t.ico}</span><span>${t.label}</span>${extra}</button>`;
@@ -1662,6 +1807,7 @@ function listingCard(v) {
     ${photoHTML(cat, item)}
     ${itemHead(cat, item)}
     <div class="tags">${condBadge(item)}${apprBadge(item)}</div>
+    ${orderTag(item)}
     <p class="desc">${esc(cat.description)}</p>
     <div class="seller"><span class="av">${seller.avatar}</span><div><b>${esc(seller.name)}</b><small>${esc(seller.trait)}</small></div><span class="mood" title="Satıcının ruh hâli">${Game.mood(l)}</span></div>
     ${item.appraised ? `<div class="appr">🔍 Ekspertiz: <b>${a.ico} ${a.label}</b> · Gerçek değer ≈ <b>${fmt(niceRound(item.true_value))}</b></div>` : ''}
@@ -1710,6 +1856,7 @@ function invCard(item) {
     ${photoHTML(cat, item)}
     ${itemHead(cat, item)}
     <div class="tags">${condBadge(item)}${apprBadge(item)}${inAuc ? '<span class="badge warn">🔨 Mezatta</span>' : ''}</div>
+    ${inAuc ? '' : orderTag(item)}
     <div class="kv">
       <div><small>Alış fiyatı</small><b>${fmt(cost)}</b></div>
       <div><small>${item.appraised ? 'Gerçek değer' : 'Tahmini değer'}</small><b>${fmt(niceRound(ref))}</b></div>
@@ -1943,7 +2090,7 @@ function hallFocus(hall) {
 }
 
 /* ------------------------------ DEFTER ------------------------------ */
-const TX_ICON = { purchase: '🛒', sale: '🔨', dealer_sale: '💱', collector_sale: '🏛️', museum: '🎟️', shop: '🪟', appraisal: '🔍', bailout: '🆘' };
+const TX_ICON = { purchase: '🛒', sale: '🔨', dealer_sale: '💱', collector_sale: '🏛️', order_sale: '🧾', museum: '🎟️', shop: '🪟', appraisal: '🔍', bailout: '🆘' };
 function renderLedger() {
   const root = $('#view-ledger');
   if (!root) return;
@@ -2207,7 +2354,7 @@ function offerHTML(o) {
 function renderShop() {
   const root = $('#view-shop');
   if (!root) return;
-  Game.expireOffers();
+  Game.expireOffers(); Game.expireOrders();
   const s = Game.shop(), pr = Game.prestige(), lv = Game.level(pr.points), fee = Game.ticketFee(pr.points);
   const perMin = Math.round(Game.visitorsPerTick(pr.points) * 60000 / SHOP.TICK_MS * 10) / 10;
   const price = Game.cabinetPrice(), offers = Game.openOffers();
@@ -2227,6 +2374,8 @@ function renderShop() {
       <div class="meter"><i style="width:${Math.round(lv.pct * 100)}%"></i></div>
       <div class="tags" style="margin-top:8px">${sets}<span class="badge">🎟️ Giriş: ${fmt(fee)}</span><span class="badge">👥 ~${perMin} ziyaretçi/dk · ${s.visitors} toplam</span></div>
     </div>
+    ${ordersHTML()}
+    <h3 class="sec">🏛️ Sergi salonu</h3>
     <div class="museum">
       <div class="m-wall"></div>
       <div class="vitrins">${Array.from({ length: s.cabinets }, (_, k) => cabinetHTML(k)).join('')}</div>
@@ -2261,6 +2410,61 @@ function openDisplayedItem(itemId) {
     </div>
     <div class="modal-foot">${item.appraised ? '' : `<button class="btn btn-ghost" data-action="appraise" data-id="${item.id}">🔍 Ekspertiz · ${fmt(Game.appraisalFee(item))}</button>`}
       <button class="btn btn-gold" data-action="display-take" data-id="${item.id}">Vitrinden indir</button></div>`);
+}
+
+/* ------------------------------ MÜŞTERİ SİPARİŞLERİ ------------------------------ */
+function orderReq(o) {
+  const cat = o.kind === 'item' ? DB.get('catalog_items', o.item_id) : null;
+  const tags = [
+    o.kind === 'item' ? `<span class="badge gold">🎯 ${esc(cat.name)}</span>` : `<span class="badge gold">📂 ${esc(o.category)}</span><span class="badge">${RARITY[o.min_rarity].label}+</span>`,
+    `<span class="badge">Durum ≥ ${COND[o.min_condition].label}</span>`,
+    o.need_genuine ? '<span class="badge good">✅ Belgeli orijinal</span>' : '<span class="badge">Taklit olabilir</span>'
+  ];
+  return tags.join('');
+}
+function orderCard(o) {
+  const c = Game.customer(o.customer_id), mins = Math.max(1, Math.ceil((o.expires_ms - Date.now()) / 60000));
+  const have = Game.inventory().filter(i => i.status === 'inventory' && Game.orderMatch(o, i));
+  const ready = have.filter(i => !Game.orderBlock(o, i));
+  const cat = o.kind === 'item' ? DB.get('catalog_items', o.item_id) : null;
+  return `<article class="order">
+    <div class="o-who"><span class="av lg">${c.avatar}</span><div><b>${esc(c.name)}</b><small>${esc(c.trait)} · ⏳ ${mins} dk</small></div><div class="o-budget"><small>Bütçe</small><b>${fmt(o.budget)}</b></div></div>
+    <div class="bubble">“${esc(o.line)}”</div>
+    <div class="tags">${orderReq(o)}</div>
+    <div class="actions">
+      ${ready.length ? `<button class="btn btn-gold" data-action="order-deliver" data-id="${o.id}">📦 Teslim et (${ready.length})</button>`
+        : have.length ? `<button class="btn btn-ghost" data-action="order-deliver" data-id="${o.id}">🔍 Eşleşen ${have.length} eşya var · ekspertiz gerek</button>`
+        : `<button class="btn btn-ghost" data-tab="${o.kind === 'item' ? 'market' : 'market'}">🛒 Pazarda ara</button>`}
+      <button class="btn btn-ghost btn-sm" data-action="order-decline" data-id="${o.id}">Geri çevir</button>
+    </div>
+    ${cat ? `<small class="o-hint">Emsal değer ≈ ${fmt(cat.base_value)} · alış fiyatı bütçenin altındaysa kâr edersin</small>` : '<small class="o-hint">Uygun nadirlikte herhangi bir eşya işini görür — en ucuzunu bul.</small>'}
+  </article>`;
+}
+function ordersHTML() {
+  const list = Game.openOrders();
+  return `<h3 class="sec">🧾 Müşteri siparişleri <small class="sub">(${list.length}/${ORDER.MAX_OPEN})</small></h3>
+    <div class="orders">${list.length ? list.map(orderCard).join('') : emptyBox('🚪', 'Şu an bekleyen müşteri yok', 'Zaman zaman dükkâna müşteriler uğrar ve bütçelerine göre bir antika arar. Dükkânın seviyesi arttıkça daha sık gelirler.')}</div>`;
+}
+function openOrderDeliver(orderId) {
+  const o = DB.get('orders', orderId); if (!o || o.status !== 'open') return;
+  const c = Game.customer(o.customer_id);
+  const rows = Game.inventory().filter(i => i.status === 'inventory' && Game.orderMatch(o, i)).map(i => {
+    const cat = Game.catalogOf(i), why = Game.orderBlock(o, i), pay = Game.orderPay(o, i), pr = pay - (i.acquired_price || 0);
+    return `<div class="row">${thumbHTML(cat, i, 'sm')}<div class="grow"><div class="t">${esc(cat.name)}</div>
+      <small>${COND[i.condition].label} · ${apprText(i)} · alış ${fmt(i.acquired_price || 0)}</small>${why ? `<small class="neg">${esc(why)}</small>` : ''}</div>
+      <div class="offer-act"><b class="amt ${pr >= 0 ? 'pos' : 'neg'}">${fmt(pay)}<br><small>${sgn(pr)}</small></b>
+      <button class="btn btn-gold btn-sm" data-action="order-give" data-oid="${o.id}" data-id="${i.id}" ${why ? 'disabled' : ''}>Teslim et</button></div></div>`; }).join('');
+  Modal.open(`<div class="modal-head"><h3>${c.avatar} ${esc(c.name)} · ${fmt(o.budget)}</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>
+    <div class="modal-body"><div class="bubble">“${esc(o.line)}”</div><div class="tags">${orderReq(o)}</div>
+    <p class="sub">Mükemmel durumdaki ya da müzelik eşyalar için müşteri ek ödeme yapar.</p>
+    <div class="list">${rows || emptyBox('🎒', 'Eşleşen eşya yok', 'Envanterinde bu siparişe uyan bir eşya yok.')}</div></div>`);
+}
+function apprText(i) { return i.appraised ? AUTH[i.authenticity].ico + ' ' + AUTH[i.authenticity].label : '❔ Ekspertizsiz'; }
+function orderTag(item) {   // pazar / envanter kartlarında: bu eşya açık bir siparişe uyuyor mu
+  const os = Game.ordersFor(item); if (!os.length) return '';
+  const o = os.sort((a, b) => b.budget - a.budget)[0], c = Game.customer(o.customer_id);
+  const pay = Game.orderPay(o, item);
+  return `<div class="order-tag">🧾 <b>${esc(c.name)}</b> bunu ${fmt(pay)} verir${o.need_genuine && !item.appraised ? ' · ekspertiz şart' : ''}</div>`;
 }
 
 /* ---------- 08-sound.js ---------- */
@@ -4253,6 +4457,9 @@ const ACTIONS = {
   'buy-cabinet': () => { const r = Game.buyCabinet(); if (!r.ok) toast(r.msg, 'warn'); else toast(`${r.cabinets}. vitrin hazır: +${SHOP.SLOTS} yuva.`, 'success', '🪟 Yeni vitrin'); },
   'offer-accept': el => { const r = Game.acceptOffer(el.dataset.id); if (!r.ok) { toast(r.msg, 'warn'); renderShop(); return; } toast(`${r.cat.name} → ${r.buyer.name} · ${fmt(r.price)} · ${r.profit >= 0 ? 'kâr' : 'zarar'} ${fmt(Math.abs(r.profit))}`, r.profit >= 0 ? 'success' : 'warn', '🏛️ Koleksiyoncuya satıldı'); },
   'offer-decline': el => { Game.declineOffer(el.dataset.id); },
+  'order-deliver': el => openOrderDeliver(el.dataset.id),
+  'order-give': el => { const r = Game.fulfillOrder(el.dataset.oid, el.dataset.id); Modal.close(); if (!r.ok) { toast(r.msg, 'warn', 'Teslim edilemedi'); return; } toast(`${r.cat.name} → ${r.cust.name} · ${fmt(r.pay)}${r.bonus > 0 ? ' (+' + fmt(r.bonus) + ' ek ödeme)' : ''} · ${r.profit >= 0 ? 'kâr' : 'zarar'} ${fmt(Math.abs(r.profit))}`, r.profit >= 0 ? 'success' : 'warn', '🧾 Sipariş teslim edildi'); },
+  'order-decline': el => { Game.declineOrder(el.dataset.id); },
   'new-day': () => { const d = Game.newDay(); toast(`Gün ${d}: tezgâhlar yenilendi.`, 'info', '🌅 Yeni gün'); },
   'to-auction': el => openStartAuction(el.dataset.id),
   'start-quick': el => { const i = $('#au-start-input'); if (i) { i.value = el.dataset.v; i.focus(); } },
@@ -4298,6 +4505,7 @@ function wireBus() {
   Bus.on('shop', d => {
     renderNav();
     if (d && d.exposed) d.exposed.forEach(i => toast(`Bir uzman sergideki ${Game.catalogOf(i).name} eşyasının TAKLİT olduğunu fark etti!`, 'warn', '🧐 Sahte ifşa oldu'));
+    if (d && d.orders) { toast('Dükkâna bir müşteri geldi ve senden bir şey istiyor.', 'info', '🧾 Yeni sipariş'); if (UI.tab === 'market' && !UI.bargain) renderMarket(); }
     if (d && d.offers) toast('Bir koleksiyoncu vitrindeki eşyalarına teklif verdi.', 'info', '🏛️ Yeni teklif');
     if (UI.tab === 'shop' && !Modal.isOpen()) renderShop();
   });
