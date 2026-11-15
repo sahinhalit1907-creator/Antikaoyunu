@@ -425,6 +425,22 @@ pre.sql{margin:0;padding:14px;border-radius:12px;background:#0a0c10;border:1px s
 .o-hint{color:var(--muted);font-size:11.5px}
 .order-tag{margin:6px 0;padding:6px 10px;border-radius:10px;background:rgba(227,180,95,.14);border:1px dashed rgba(227,180,95,.55);color:#f6dca0;font-size:12.5px}
 
+/* ---------- Kayıt & yükleme ---------- */
+.save-auto{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;border-color:rgba(76,201,126,.45)}
+.save-auto.bad{border-color:rgba(255,120,100,.6)}
+.save-auto small{color:var(--muted);line-height:1.45}
+.sec-s{margin:14px 0 8px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.save-files{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media(max-width:520px){.save-files{grid-template-columns:1fr}}
+#save-paste-box{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+#save-paste-box[hidden]{display:none}
+#save-paste{width:100%;border-radius:12px;border:1px solid var(--border2);background:var(--surface2,#1a1420);color:inherit;padding:10px;font:12px/1.4 ui-monospace,monospace;resize:vertical}
+#save-ind{position:fixed;left:14px;bottom:86px;z-index:60;padding:6px 12px;border-radius:999px;background:rgba(18,12,20,.92);border:1px solid rgba(76,201,126,.5);color:#bff0d0;font-size:12.5px;opacity:0;pointer-events:none;transform:translateY(6px);transition:opacity .25s,transform .25s}
+#save-ind.bad{border-color:rgba(255,120,100,.7);color:#ffc9bd}
+#save-ind.show{animation:saveind 2.6s ease forwards}
+@keyframes saveind{0%{opacity:0;transform:translateY(6px)}12%,75%{opacity:1;transform:none}100%{opacity:0}}
+@media(min-width:900px){#save-ind{bottom:18px}}
+
 </style>
 </head>
 <body>
@@ -877,22 +893,109 @@ const DB = {
   dirty() { clearTimeout(this._timer); this._timer = setTimeout(() => this.save(), 350); },
   save() {
     clearTimeout(this._timer);
-    try { localStorage.setItem(CFG.SAVE_KEY, JSON.stringify({ meta: this.meta, t: this.t })); return true; } catch (e) { return false; }
+    this.meta.saved_at = Date.now();
+    let ok = false;
+    try { ok = Store.set(CFG.SAVE_KEY, JSON.stringify({ meta: this.meta, t: this.t })); } catch (e) { ok = false; }
+    this.lastSave = { at: this.meta.saved_at, ok: ok || Store.ok() };
+    if (typeof Bus !== 'undefined') Bus.emit('saved', this.lastSave);
+    return ok;
+  },
+  lastSave: null,
+  snapshotJSON() { return JSON.stringify({ meta: Object.assign({}, this.meta, { saved_at: Date.now() }), t: this.t }); },
+  /* kayıt nesnesini doğrula: {meta, t} ya da dışa aktarım biçimleri ({game, data}, {meta, tables}) */
+  parseSave(x) {
+    try {
+      let d = typeof x === 'string' ? JSON.parse(x) : x;
+      if (d && d.data && d.data.meta) d = d.data;                    // dosya sarmalayıcısı
+      if (d && !d.t && d.tables) d = { meta: d.meta, t: d.tables };   // eski "JSON kopyala" biçimi
+      if (!d || !d.t || !d.meta || d.meta.schema_version !== CFG.SCHEMA_VERSION || !d.meta.player_id) return null;
+      if (!Array.isArray(d.t.players) || !d.t.players.some(p => p.id === d.meta.player_id)) return null;
+      return d;
+    } catch (e) { return null; }
+  },
+  loadObject(d) {
+    d = this.parseSave(d); if (!d) return false;
+    this.init();
+    this.meta = Object.assign(this.meta, d.meta);
+    TABLES.forEach(n => { this.t[n] = Array.isArray(d.t[n]) ? d.t[n] : []; });
+    return !!this.get('players', this.meta.player_id);
   },
   load() {
-    try {
-      const raw = localStorage.getItem(CFG.SAVE_KEY);
-      if (!raw) return false;
-      const d = JSON.parse(raw);
-      if (!d || !d.t || !d.meta || d.meta.schema_version !== CFG.SCHEMA_VERSION || !d.meta.player_id) return false;
-      this.init();
-      this.meta = Object.assign(this.meta, d.meta);
-      TABLES.forEach(n => { this.t[n] = Array.isArray(d.t[n]) ? d.t[n] : []; });
-      return !!this.get('players', this.meta.player_id);
-    } catch (e) { return false; }
+    try { const raw = Store.get(CFG.SAVE_KEY); return raw ? this.loadObject(raw) : false; } catch (e) { return false; }
   },
-  wipe() { clearTimeout(this._timer); try { localStorage.removeItem(CFG.SAVE_KEY); } catch (e) { /* yoksay */ } },
+  wipe() { clearTimeout(this._timer); Store.del(CFG.SAVE_KEY); },
   exportJSON() { return JSON.stringify({ meta: this.meta, tables: this.t }, null, 2); }
+};
+
+/* ---------- 02-store.js ---------- */
+/* =====================================================================
+   BÖLÜM 2b — KALICI DEPOLAMA: localStorage + IndexedDB yedeği (çift yazım)
+   Bazı ortamlarda (dosyadan açma, uygulama içi önizleme, gizli pencere) localStorage çalışmayabilir;
+   bu yüzden her kayıt IndexedDB'ye de yazılır ve açılışta ikisinden de EN YENİSİ seçilir.
+   ===================================================================== */
+const Store = {
+  cache: {},                    // IndexedDB'den açılışta okunan değerler
+  status: { ls: null, idb: null, persisted: null, lastErr: '' },
+  _db: null,
+
+  lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { this.status.lastErr = String((e && e.name) || e); return false; } },
+  lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* yoksay */ } },
+
+  idb() {
+    if (this._db) return this._db;
+    this._db = new Promise(res => {
+      try {
+        if (typeof indexedDB === 'undefined') return res(null);
+        const rq = indexedDB.open('bitpazari_antika', 1);
+        rq.onupgradeneeded = () => { try { rq.result.createObjectStore('kv'); } catch (e) { /* var */ } };
+        rq.onsuccess = () => res(rq.result);
+        rq.onerror = rq.onblocked = () => res(null);
+      } catch (e) { res(null); }
+    });
+    return this._db;
+  },
+  async idbGet(k) {
+    const db = await this.idb(); if (!db) return null;
+    return new Promise(res => { try { const r = db.transaction('kv').objectStore('kv').get(k); r.onsuccess = () => res(r.result == null ? null : r.result); r.onerror = () => res(null); } catch (e) { res(null); } });
+  },
+  async idbSet(k, v) {
+    const db = await this.idb(); if (!db) { this.status.idb = false; return false; }
+    return new Promise(res => { try { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => { this.status.idb = true; res(true); }; tx.onerror = tx.onabort = () => { this.status.idb = false; res(false); }; } catch (e) { this.status.idb = false; res(false); } });
+  },
+  async idbDel(k) {
+    const db = await this.idb(); if (!db) return;
+    try { db.transaction('kv', 'readwrite').objectStore('kv').delete(k); } catch (e) { /* yoksay */ }
+  },
+
+  keys() { return [CFG.SAVE_KEY, ...[1, 2, 3].map(n => CFG.SAVE_KEY + '_slot' + n)]; },
+  /* açılış: IndexedDB'deki kayıtları belleğe al (en çok 1.5 sn bekler) + depolama sağlık denemesi */
+  async warm() {
+    const job = (async () => {
+      const probe = '__bp_probe__' + Math.random();
+      this.status.ls = this.lsSet(probe, '1') && this.lsGet(probe) === '1'; this.lsDel(probe);
+      const vals = await Promise.all(this.keys().map(k => this.idbGet(k)));
+      this.keys().forEach((k, i) => { if (typeof vals[i] === 'string') this.cache[k] = vals[i]; });
+      this.status.idb = !!(await this.idb());
+      try { if (navigator.storage && navigator.storage.persist) this.status.persisted = await navigator.storage.persist(); } catch (e) { /* yoksay */ }
+    })();
+    await Promise.race([job, new Promise(r => setTimeout(r, 1500))]);
+  },
+  /* iki kaynaktan en yeni olanı (saved_at'e göre) döndürür; metin */
+  get(k) {
+    const cands = [this.lsGet(k), this.cache[k]].filter(s => typeof s === 'string' && s);
+    let best = null, bt = -1;
+    cands.forEach(s => { try { const d = JSON.parse(s), t = (d && d.meta && d.meta.saved_at) || 0; if (t >= bt) { bt = t; best = s; } } catch (e) { /* bozuk */ } });
+    return best;
+  },
+  set(k, v) {
+    this.cache[k] = v;
+    const ls = this.lsSet(k, v); this.status.ls = ls;
+    this.idbSet(k, v);              // eşzamansız yedek
+    return ls;
+  },
+  del(k) { delete this.cache[k]; this.lsDel(k); this.idbDel(k); },
+  ok() { return this.status.ls === true || this.status.idb === true; }
 };
 
 /* ---------- 03-game.js ---------- */
@@ -2269,11 +2372,12 @@ function openMenu() {
     <div class="modal-head"><h3>☰ Menü</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>
     <div class="modal-body"><div class="menu-list">
       <button class="btn btn-ghost" data-action="howto">📖 Nasıl oynanır?</button>
+      <button class="btn btn-ghost" data-action="saves">💾 Kayıt & Yükleme</button>
       <button class="btn btn-ghost" data-action="snd-settings">🔊 Ses ayarları</button>
       <button class="btn btn-ghost" data-action="schema">🗄️ Veritabanı şeması (Supabase SQL)</button>
       <button class="btn btn-ghost" data-action="copy-json">💾 Oyun verisini JSON olarak kopyala</button>
       <button class="btn btn-danger" data-action="reset">♻️ Oyunu sıfırla</button>
-    </div><p class="hint">Oyun otomatik kaydedilir (localStorage). Başlangıç bakiyesi ${fmt(CFG.START_BALANCE)}.</p></div>`);
+    </div><p class="hint">Oyun otomatik kaydedilir (tarayıcı belleği + IndexedDB); istersen 💾 ile manuel kaydedip dosyaya yedekleyebilirsin. Başlangıç bakiyesi ${fmt(CFG.START_BALANCE)}.</p></div>`);
 }
 function openSoundSettings() {
   const p = Sound.prefs;
@@ -2465,6 +2569,116 @@ function orderTag(item) {   // pazar / envanter kartlarında: bu eşya açık bi
   const o = os.sort((a, b) => b.budget - a.budget)[0], c = Game.customer(o.customer_id);
   const pay = Game.orderPay(o, item);
   return `<div class="order-tag">🧾 <b>${esc(c.name)}</b> bunu ${fmt(pay)} verir${o.need_genuine && !item.appraised ? ' · ekspertiz şart' : ''}</div>`;
+}
+
+/* ---------- 07c-ui-saves.js ---------- */
+/* =====================================================================
+   BÖLÜM 7c — KAYIT & YÜKLEME: otomatik kayıt göstergesi, 3 manuel yuva, dosya/metin ile yedek
+   ===================================================================== */
+const SLOTS = [1, 2, 3];
+const slotKey = n => CFG.SAVE_KEY + '_slot' + n;
+const fmtWhen = ms => ms ? new Date(ms).toLocaleString('tr-TR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+
+function saveInfo(raw) {   // bir kaydın özeti
+  const d = raw && DB.parseSave(raw); if (!d) return null;
+  const p = d.t.players.find(x => x.id === d.meta.player_id);
+  const items = d.t.items.filter(i => i.owner_id === d.meta.player_id && (i.status === 'inventory' || i.status === 'display' || i.status === 'auction')).length;
+  const shop = (d.t.shops && d.t.shops[0]) || null;
+  return { at: d.meta.saved_at || 0, balance: p ? p.balance : 0, items, cab: shop ? shop.cabinets : 1, tx: d.t.transactions.length };
+}
+function storageLine() {
+  const s = Store.status, parts = [];
+  parts.push(s.ls ? '✅ Tarayıcı belleği' : '⚠️ Tarayıcı belleği kapalı');
+  parts.push(s.idb ? '✅ IndexedDB yedeği' : '⚠️ IndexedDB kapalı');
+  return parts.join(' · ');
+}
+function openSaves(note) {
+  const last = DB.lastSave, bad = !Store.ok();
+  const rows = SLOTS.map(n => {
+    const info = saveInfo(Store.get(slotKey(n)));
+    return `<div class="row slot"><div class="grow"><div class="t">Yuva ${n}${info ? '' : ' <small>· boş</small>'}</div>
+      <small>${info ? `${fmtWhen(info.at)} · ${fmt(info.balance)} · ${info.items} eşya · ${info.cab} vitrin` : 'Henüz kayıt yok'}</small></div>
+      <div class="offer-act"><button class="btn btn-gold btn-sm" data-action="slot-save" data-n="${n}">Kaydet</button>
+      <button class="btn btn-ghost btn-sm" data-action="slot-load" data-n="${n}" ${info ? '' : 'disabled'}>Yükle</button>
+      <button class="btn btn-ghost btn-sm" data-action="slot-del" data-n="${n}" ${info ? '' : 'disabled'} aria-label="Yuvayı sil">🗑️</button></div></div>`;
+  }).join('');
+  Modal.open(`<div class="modal-head"><h3>💾 Kayıt & Yükleme</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>
+    <div class="modal-body">
+      ${note ? `<div class="appr">${note}</div>` : ''}
+      <div class="panel save-auto ${bad ? 'bad' : ''}">
+        <b>${bad ? '⚠️ Otomatik kayıt bu ortamda çalışmıyor' : '🟢 Otomatik kayıt açık'}</b>
+        <small>Son kayıt: ${last ? fmtWhen(last.at) : '—'} · ${storageLine()}</small>
+        ${bad ? '<small class="neg">Tarayıcı depolamayı engelliyor (gizli pencere / uygulama içi önizleme olabilir). İlerlemeni kaybetmemek için aşağıdan <b>Dosyaya indir</b> ile yedek al.</small>' : '<small>Oyun her işlemden sonra, 10 sn’de bir ve sekmeden çıkarken kendiliğinden kaydedilir.</small>'}
+      </div>
+      <h4 class="sec-s">Manuel kayıt yuvaları</h4>
+      <div class="list">${rows}</div>
+      <h4 class="sec-s">Yedek dosyası</h4>
+      <div class="save-files">
+        <button class="btn btn-ghost" data-action="save-download">⬇️ Dosyaya indir (.json)</button>
+        <button class="btn btn-ghost" data-action="save-upload">⬆️ Dosyadan yükle</button>
+        <button class="btn btn-ghost" data-action="save-copy">📋 Kayıt metnini kopyala</button>
+        <button class="btn btn-ghost" data-action="save-paste">📥 Metinden yükle</button>
+      </div>
+      <input type="file" id="save-file" accept=".json,application/json" hidden>
+      <div id="save-paste-box" hidden><textarea id="save-paste" rows="5" placeholder="Kopyaladığın kayıt metnini buraya yapıştır"></textarea>
+        <button class="btn btn-gold btn-block" data-action="save-paste-go">Bu metni yükle</button></div>
+    </div>`);
+}
+
+/* kayıt nesnesini canlı oyuna uygula (sayfa yenilemeden) */
+function applySave(raw) {
+  const d = DB.parseSave(raw);
+  if (!d) { toast('Bu dosya geçerli bir Antika & Mezat kaydı değil.', 'warn', 'Yüklenemedi'); return false; }
+  Auction.stop(); Game.locked.clear();
+  if (!DB.loadObject(d)) { toast('Kayıt okunamadı.', 'warn', 'Yüklenemedi'); return false; }
+  Game.syncCatalog(); Game.refillMarket(true); Auction.resume();
+  balShown = null; UI.filter = { market: 'all', inv: 'all' }; UI.bargain = null; UI.auctionBuilt = false;
+  DB.save(); Modal.close(); renderBalance(); renderNav(); switchTab('market');
+  toast(`Kayıt yüklendi: ${fmt(Game.balance())} · ${Game.stats().invCount} eşya.`, 'success', '💾 Oyun yüklendi');
+  return true;
+}
+function slotSave(n) {
+  const raw = DB.snapshotJSON(); DB.save();
+  const ok = Store.set(slotKey(n), raw);
+  if (!ok && !Store.status.idb) toast('Bu ortamda kayıt yuvası yazılamadı; “Dosyaya indir” ile yedekle.', 'warn');
+  else toast(`Yuva ${n}’e kaydedildi.`, 'success', '💾 Kaydedildi');
+  openSaves();
+}
+function downloadSave() {
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  const text = JSON.stringify({ game: 'antika-mezat', version: 1, exported_at: new Date().toISOString(), data: JSON.parse(DB.snapshotJSON()) });
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = `antika-mezat-kayit-${stamp}.json`; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast('Yedek dosyası indirildi. Başka cihazda “Dosyadan yükle” ile devam edebilirsin.', 'success', '⬇️ İndirildi');
+  } catch (e) { toast('İndirme engellendi; “Kayıt metnini kopyala” seçeneğini kullan.', 'warn'); }
+}
+function wireSaves() {
+  Bus.on('saved', () => {   // küçük "kaydedildi" göstergesi (sık yanıp sönmesin)
+    const now = Date.now(); if (now - (wireSaves.t || 0) < 8000 && DB.lastSave.ok) return; wireSaves.t = now;
+    let el = document.getElementById('save-ind');
+    if (!el) { el = document.createElement('div'); el.id = 'save-ind'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
+    const ok = DB.lastSave.ok;
+    el.textContent = ok ? '💾 Kaydedildi' : '⚠️ Kayıt yapılamıyor — Menü › Kayıt';
+    el.classList.toggle('bad', !ok); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+    if (!ok && !wireSaves.warned) { wireSaves.warned = true; toast('Tarayıcı bu oyunun kaydını saklamıyor. 💾 düğmesinden “Dosyaya indir” ile yedek al.', 'warn', 'Otomatik kayıt çalışmıyor', 9000); }
+  });
+  document.addEventListener('change', e => {
+    if (e.target && e.target.id === 'save-file' && e.target.files[0]) {
+      const f = e.target.files[0], r = new FileReader();
+      r.onload = () => confirmBox({ title: 'Bu kayıt yüklensin mi?', text: 'Şu anki ilerlemenin yerine dosyadaki kayıt geçecek.', ok: 'Yükle', danger: true, onOk: () => applySave(String(r.result)) });
+      r.readAsText(f);
+    }
+  });
+  const mount = () => {   // başlığa 💾 düğmesi
+    const menu = document.querySelector('[data-action="menu"]'); if (!menu || document.getElementById('save-btn')) return;
+    const b = document.createElement('button'); b.id = 'save-btn'; b.type = 'button'; b.className = 'snd-btn'; b.dataset.action = 'saves'; b.title = 'Kayıt & Yükleme'; b.setAttribute('aria-label', 'Kayıt ve yükleme'); b.textContent = '💾';
+    menu.parentNode.insertBefore(b, menu);
+  };
+  mount();
+  setInterval(() => DB.save(), 10000);
+  window.addEventListener('pagehide', () => DB.save());
 }
 
 /* ---------- 08-sound.js ---------- */
@@ -4470,6 +4684,15 @@ const ACTIONS = {
     ok: 'Mezatı iptal et', danger: true, onOk: () => Auction.cancel() }),
   menu: () => openMenu(), howto: () => openHowTo(), schema: () => openSchema(),
   'copy-sql': async () => { toast((await copyText(SCHEMA_SQL)) ? 'SQL şeması panoya kopyalandı.' : 'Kopyalanamadı; metni elle seçip kopyalayabilirsin.', 'info'); },
+  saves: () => openSaves(),
+  'slot-save': el => { const n = Number(el.dataset.n), had = saveInfo(Store.get(slotKey(n))); if (had) confirmBox({ title: `Yuva ${n} üzerine yazılsın mı?`, text: 'Bu yuvadaki eski kayıt silinecek.', ok: 'Üzerine yaz', onOk: () => slotSave(n) }); else slotSave(n); },
+  'slot-load': el => { const n = Number(el.dataset.n); confirmBox({ title: `Yuva ${n} yüklensin mi?`, text: 'Şu anki ilerlemenin yerine bu kayıt geçecek. (Önce “Kaydet” ile yedeklemeyi unutma.)', ok: 'Yükle', danger: true, onOk: () => applySave(Store.get(slotKey(n))) }); },
+  'slot-del': el => { const n = Number(el.dataset.n); confirmBox({ title: `Yuva ${n} silinsin mi?`, text: 'Bu kayıt kalıcı olarak silinir.', ok: 'Sil', danger: true, onOk: () => { Store.del(slotKey(n)); openSaves(); } }); },
+  'save-download': () => downloadSave(),
+  'save-upload': () => { const f = document.getElementById('save-file'); if (f) { f.value = ''; f.click(); } },
+  'save-copy': async () => { toast((await copyText(DB.snapshotJSON())) ? 'Kayıt metni panoya kopyalandı. Bir yere yapıştırıp sakla.' : 'Kopyalanamadı.', 'info'); },
+  'save-paste': () => { const b = document.getElementById('save-paste-box'); if (b) { b.hidden = !b.hidden; const t = document.getElementById('save-paste'); if (t && !b.hidden) t.focus(); } },
+  'save-paste-go': () => { const t = document.getElementById('save-paste'); const raw = t ? t.value.trim() : ''; if (!DB.parseSave(raw)) { toast('Yapıştırılan metin geçerli bir kayıt değil.', 'warn', 'Yüklenemedi'); return; } confirmBox({ title: 'Bu kayıt yüklensin mi?', text: 'Şu anki ilerlemenin yerine yapıştırdığın kayıt geçecek.', ok: 'Yükle', danger: true, onOk: () => applySave(raw) }); },
   'copy-json': async () => { toast((await copyText(DB.exportJSON())) ? 'Oyun verisi JSON olarak panoya kopyalandı.' : 'Kopyalanamadı.', 'info'); },
   reset: () => confirmBox({ title: 'Oyun sıfırlansın mı?', text: 'Tüm ilerlemen, envanterin ve bakiyen silinir.', ok: 'Sıfırla', danger: true, onOk: resetGame }),
   'snd-toggle': () => Sound.toggleMute(),
@@ -4536,10 +4759,11 @@ function wireBus() {
   });
 }
 
-function init() {
+async function init() {
+  await Store.warm();   // IndexedDB yedeğini oku (en çok 1.5 sn)
   if (!DB.load()) Game.newGame(); else Game.syncCatalog();
   wireBus();
-  Sound.wire(); Sound.mountButton();
+  Sound.wire(); Sound.mountButton(); wireSaves();
   Game.refillMarket(true);
   Auction.resume();
   { const r = Game.shopCatchUp(); if (r && (r.visitors || r.revenue)) setTimeout(() => toast(`Sen yokken ${r.visitors} ziyaretçi geldi, ${fmt(r.revenue)} giriş ücreti topladın.`, 'success', '🏛️ Dükkân'), 600); }
