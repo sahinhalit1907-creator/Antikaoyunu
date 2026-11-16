@@ -441,6 +441,35 @@ pre.sql{margin:0;padding:14px;border-radius:12px;background:#0a0c10;border:1px s
 @keyframes saveind{0%{opacity:0;transform:translateY(6px)}12%,75%{opacity:1;transform:none}100%{opacity:0}}
 @media(min-width:900px){#save-ind{bottom:18px}}
 
+/* ---- İlanlar (koleksiyoncu ağı) ---- */
+.ads{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:14px}
+.ad{display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:16px;background:linear-gradient(160deg,#14222e,#0f1620);border:1px solid var(--border2);position:relative}
+.ad::before{content:"";position:absolute;left:14px;right:14px;top:0;height:3px;border-radius:0 0 4px 4px;background:linear-gradient(90deg,#4ba3d6,#a9dcf5,#4ba3d6)}
+.ad-head{display:flex;align-items:center;gap:10px}
+.ad-head .grow{min-width:0}.ad-head b{display:block}.ad-head small{display:block;color:var(--muted);font-size:12px}
+.ad-art{border-radius:12px;overflow:hidden;border:1px solid var(--border);max-height:170px;display:flex;justify-content:center;background:var(--bg2)}
+.ad-art .photo,.ad-art img{width:100%;height:auto;max-height:170px;object-fit:cover;display:block}
+.ad-cat{height:90px;align-items:center;font-size:48px}
+.ad .bubble{margin:0}
+.ad-foot{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.ad-foot small{display:block;color:var(--muted);font-size:11.5px}
+.ad-price{display:block;font-size:22px;color:var(--gold2);font-variant-numeric:tabular-nums}
+.ad .actions{display:flex;gap:8px;flex-wrap:wrap}
+.chat{display:flex;flex-direction:column;gap:8px;max-height:200px;overflow:auto;padding:10px;border-radius:14px;background:var(--bg2);border:1px solid var(--border);margin:10px 0}
+.msg{display:flex;gap:8px;align-items:flex-end}.msg.me{justify-content:flex-end}
+.msg .mb{max-width:82%;padding:8px 12px;border-radius:14px;font-size:13.5px;background:var(--surface2);border:1px solid var(--border2)}
+.msg.me .mb{background:rgba(227,180,95,.16);border-color:rgba(227,180,95,.5);border-bottom-right-radius:4px}
+.msg.them .mb{border-bottom-left-radius:4px}
+.msg .av{font-size:22px}
+.meter.pat i{background:linear-gradient(90deg,#ff6b6b,#e3b45f,#4cc38a)}
+.sec-s{margin:12px 0 6px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.row.pick{width:100%;text-align:left;cursor:pointer;color:inherit}
+.row.pick.on{border-color:var(--gold);box-shadow:0 0 0 2px rgba(227,180,95,.25)}
+.row.pick:disabled{opacity:.5;cursor:not-allowed}
+.bargain-row{display:flex;gap:8px;margin-top:12px}
+.quick{display:flex;gap:6px;margin:8px 0;flex-wrap:wrap}
+.ad .actions .btn{flex-direction:row;white-space:nowrap;width:auto;height:auto}
+
 </style>
 </head>
 <body>
@@ -463,6 +492,7 @@ pre.sql{margin:0;padding:14px;border-radius:12px;background:#0a0c10;border:1px s
   <section class="view active" id="view-market" role="tabpanel"></section>
   <section class="view" id="view-inventory" role="tabpanel"></section>
   <section class="view" id="view-shop" role="tabpanel"></section>
+  <section class="view" id="view-web" role="tabpanel"></section>
   <section class="view" id="view-auction" role="tabpanel"></section>
   <section class="view" id="view-ledger" role="tabpanel"></section>
 </main>
@@ -746,7 +776,7 @@ const Bus = {
    status alanları içerir. Böylece Supabase'e (PostgreSQL) birebir taşınabilir.
    Online sürümde yalnızca bu katmanın içi supabase.from('tablo')... ile değişir.
    ===================================================================== */
-const TABLES = ['players', 'npcs', 'catalog_items', 'items', 'market_listings', 'offers', 'auctions', 'bids', 'transactions', 'shops', 'shop_offers', 'orders'];
+const TABLES = ['players', 'npcs', 'catalog_items', 'items', 'market_listings', 'offers', 'auctions', 'bids', 'transactions', 'shops', 'shop_offers', 'orders', 'web_ads'];
 
 const SCHEMA_SQL = `-- Supabase / PostgreSQL şeması — oyundaki veri modelinin karşılığı
 create extension if not exists "pgcrypto";
@@ -855,7 +885,7 @@ create table bids (
 create table transactions (               -- oyuncunun para defteri
   id               uuid primary key default gen_random_uuid(),
   player_id        uuid not null references players(id),
-  type             text not null check (type in ('purchase','sale','dealer_sale','collector_sale','order_sale','appraisal','museum','shop','bailout')),
+  type             text not null check (type in ('purchase','sale','dealer_sale','collector_sale','order_sale','web_sale','appraisal','museum','shop','bailout')),
   amount           numeric(12,2) not null,   -- (+) gelir, (−) gider
   profit           numeric(12,2),
   item_instance_id uuid references items(id),
@@ -900,6 +930,27 @@ create table orders (                    -- müşteri siparişleri (bütçeli an
   status         text not null check (status in ('open','done','expired','declined')),
   expires_ms     bigint,
   delivered_item_id uuid references items(id),
+  paid           numeric(12,2),
+  created_at     timestamptz not null default now()
+);
+
+create table web_ads (                   -- koleksiyoncu ilanları (internet); pazarlıkla satış
+  id             uuid primary key default gen_random_uuid(),
+  collector_id   text not null,
+  kind           text not null check (kind in ('item','category')),
+  item_id        text references catalog_items(id),
+  category       text,
+  min_rarity     text,
+  min_condition  text not null,
+  need_genuine   boolean not null default true,
+  ref_price      numeric(12,2) not null,              -- ilan bütçesi (görünür)
+  max_price      numeric(12,2) not null,              -- gizli tavan
+  counter        numeric(12,2),                       -- koleksiyoncunun şu anki teklifi
+  round          int not null default 0,
+  patience       int not null default 100,
+  chat           jsonb not null default '[]',
+  status         text not null check (status in ('open','sold','withdrawn','expired')),
+  expires_ms     bigint,
   paid           numeric(12,2),
   created_at     timestamptz not null default now()
 );
@@ -1263,7 +1314,7 @@ const Game = {
   /* ------------------------------ istatistik & iflas ------------------------------ */
   stats() {
     const tx = DB.find('transactions');
-    const sales = tx.filter(t => t.type === 'sale' || t.type === 'dealer_sale' || t.type === 'collector_sale' || t.type === 'order_sale');
+    const sales = tx.filter(t => t.type === 'sale' || t.type === 'dealer_sale' || t.type === 'collector_sale' || t.type === 'order_sale' || t.type === 'web_sale');
     const inv = this.inventory();
     const balance = this.balance();
     const invValue = inv.reduce((s, i) => s + this.valueFor(i), 0);
@@ -1760,6 +1811,167 @@ Object.assign(Game, {
   };
 })();
 
+/* ---------- 04-web.js ---------- */
+/* =====================================================================
+   BÖLÜM 4c — KOLEKSİYONCU İLANLARI (internet ilan sitesi)
+   Büyük koleksiyoncular değerli eşyalar için ilan açar. Oyuncu ilana bakar, elindeki uygun eşyayla
+   iletişime geçer ve fiyatı pazarlıkla belirler.
+   Tablo: web_ads (collector_id, kind, item_id|category+min_rarity, min_condition, need_genuine,
+          ref_price = ilan bütçesi, max_price = gizli tavan, counter = koleksiyoncunun şu anki teklifi,
+          round, patience, chat[], status: open | sold | withdrawn | expired)
+   ===================================================================== */
+const WEB = { TTL: 16 * 60 * 1000, MAX_OPEN: 6, CHANCE: 0.28, ROUNDS: 4, MIN_VALUE: 2400 };
+const COLLECTORS = [
+  { id: 'col-ashworth', name: 'Lord Ashworth',      avatar: '🎩', city: 'Londra',   trait: 'Saat ve bilim aletleri koleksiyoncusu', style: 'cimri',   wealth: 1.15, spec: ['Saat & Mekanik', 'Bilim & Seyahat'] },
+  { id: 'col-rashid',   name: 'Şeyh Raşid',         avatar: '🧕', city: 'Dubai',    trait: 'Halı ve mücevher meraklısı',           style: 'cömert',  wealth: 1.45, spec: ['Halı & Tekstil', 'Mücevher & Sikke'] },
+  { id: 'col-delacroix', name: 'Madame Delacroix',  avatar: '👩‍🎨', city: 'Paris',    trait: 'Sanat galerisi sahibi',                 style: 'dengeli', wealth: 1.3,  spec: ['Sanat', 'Seramik & Cam'] },
+  { id: 'col-hasan',    name: 'Prof. Hasan Kalyoncu', avatar: '👨‍🏫', city: 'İstanbul', trait: 'Osmanlı tarihi uzmanı',               style: 'dengeli', wealth: 1.1,  spec: ['Kâğıt & Kitap', 'Askeri', 'Halı & Tekstil'] },
+  { id: 'col-stein',    name: 'Baron von Stein',    avatar: '🧐', city: 'Viyana',   trait: 'Silah ve zırh koleksiyoncusu',          style: 'cimri',   wealth: 1.25, spec: ['Askeri', 'Müzik & Ses'] },
+  { id: 'col-tanaka',   name: 'Bay Tanaka',         avatar: '👨‍💼', city: 'Tokyo',    trait: 'Porselen ve mekanik oyuncak tutkunu',   style: 'cömert',  wealth: 1.35, spec: ['Seramik & Cam', 'Oyuncak', 'Saat & Mekanik'] },
+  { id: 'col-petrova',  name: 'Nadia Petrova',      avatar: '👩‍💼', city: 'Moskova',  trait: 'Mücevher ve ikon koleksiyoncusu',       style: 'dengeli', wealth: 1.4,  spec: ['Mücevher & Sikke', 'Sanat', 'Ev Eşyası'] },
+  { id: 'col-ersoy',    name: 'Cem Ersoy',          avatar: '🕴️', city: 'İzmir',    trait: 'Holding sahibi, her şeyi toplar',       style: 'cömert',  wealth: 1.5,  spec: [] }
+];
+// pazarlıkta koleksiyoncunun tavana doğru ilerleme hızı (tur 0 = ilan bütçesi)
+const WEB_PROG = { cimri: [0, 0.25, 0.45, 0.6], dengeli: [0, 0.4, 0.7, 0.9], 'cömert': [0, 0.55, 0.85, 1] };
+const WEB_STYLE = { cimri: 'Sıkı pazarlıkçı', dengeli: 'Dengeli', 'cömert': 'Eli açık' };
+const WEB_LINES = {
+  greet: ['Merhaba, ilanımı görmüşsünüz. Elinizdeki parçayı merak ediyorum.', 'İlgilendiğinize sevindim. Parçanın fotoğraflarını inceledim.', 'Ciddi bir alıcıyım. Fiyatı konuşalım.'],
+  close: ['Biraz daha yaklaşırsanız anlaşabiliriz.', 'Fena değil, ama bütçemi zorluyor.', 'Çok yakınız. Biraz esneyin.'],
+  high:  ['Bu rakam piyasanın epey üstünde.', 'O fiyata alsam koleksiyonum bana kızar.', 'Bu kadarı fazla; makul bir rakam söyleyin.'],
+  insult: ['Ciddi bir teklif mi bu?', 'Bu fiyatla vakit kaybediyoruz.'],
+  walk: ['Anlaşamayacağız galiba. İlanımı kaldırıyorum.', 'Başka bir satıcıyla görüşeceğim. İyi günler.'],
+  accept: ['Anlaştık! Parçayı hemen teslim alacağım.', 'Kabul. Ödeme hesabınıza geçti.', 'Mükemmel, bunu koleksiyonuma katacağım.']
+};
+
+Object.assign(Game, {
+  collector(id) { return COLLECTORS.find(c => c.id === id) || COLLECTORS[0]; },
+  openAds() { const now = Date.now(); return DB.find('web_ads', a => a.status === 'open' && a.expires_ms > now).sort((x, y) => y.ref_price - x.ref_price); },
+  expireAds() {
+    const now = Date.now(); let ch = 0;
+    DB.find('web_ads', a => a.status === 'open' && a.expires_ms <= now).forEach(a => { DB.update('web_ads', a.id, { status: 'expired' }); ch++; });
+    DB.find('web_ads', a => a.status !== 'open').sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(15).forEach(a => DB.remove('web_ads', a.id));
+    return ch;
+  },
+  adMatch(a, item) { return this.orderMatch(a, item); },          // aynı eşleştirme kuralları
+  adItems(a) { return this.inventory().filter(i => (i.status === 'inventory' || i.status === 'display') && this.adMatch(a, i)); },
+  adMult(item) { return (item.appraised && item.authenticity === 'exceptional' ? 1.12 : 1) * (item.condition === 'excellent' ? 1.05 : 1); },
+  adLimit(a, round) { const pr = WEB_PROG[this.collector(a.collector_id).style]; return a.ref_price + (a.max_price - a.ref_price) * pr[Math.min(round, pr.length - 1)]; },
+  adOfferFor(a, item) { return niceRound(this.adLimit(a, a.round) * this.adMult(item)); },   // bu eşya için koleksiyoncunun şu anki teklifi
+  newAd(opts) {
+    opts = opts || {};
+    const col = opts.collector ? this.collector(opts.collector) : pick(COLLECTORS);
+    const minCond = opts.min_condition || wpick([['fair', 30], ['good', 45], ['excellent', 25]]);
+    const need = opts.need_genuine != null ? opts.need_genuine : Math.random() < 0.8;
+    const kind = opts.kind || (Math.random() < 0.72 ? 'item' : 'category');
+    const row = { collector_id: col.id, kind, item_id: null, category: null, min_rarity: null, min_condition: minCond, need_genuine: need,
+      ref_price: 0, max_price: 0, counter: 0, round: 0, patience: 100, chat: [], status: 'open', line: '', expires_ms: Date.now() + (opts.ttl || WEB.TTL) };
+    const style = col.style, wealth = col.wealth, cm = COND[minCond].mult;
+    if (kind === 'item') {
+      let cat = opts.item_id && DB.get('catalog_items', opts.item_id);
+      if (!cat) {
+        const pool = DB.find('catalog_items', c => c.base_value >= WEB.MIN_VALUE);
+        cat = wpick(pool.map(c => [c, (col.spec.includes(c.category) ? 3 : 1) * (c.rarity === 'legendary' ? 0.7 : 1)]));
+      }
+      row.item_id = cat.id;
+      row.max_price = niceRound(cat.base_value * cm * rand(1.3, 1.85) * wealth);
+      row.line = pick([`Koleksiyonum için “${cat.name}” arıyorum. Doğru parçaya iyi öderim.`, `ARANIYOR: ${cat.name}. Ciddi satıcılar yazsın.`, `${cat.name} için yüksek bütçe ayırdım, pazarlığa açığım.`]);
+    } else {
+      const cat = opts.category || (col.spec.length ? pick(col.spec) : pick(CATEGORIES)[0]);
+      const minR = opts.min_rarity || wpick([['rare', 60], ['epic', 40]]);
+      const lo = RANKS.indexOf(minR);
+      let pool = CATALOG.filter(c => c[2] === cat && RANKS.indexOf(c[4]) >= lo);
+      if (!pool.length) pool = CATALOG.filter(c => c[2] === cat);
+      const avg = pool.reduce((s, c) => s + c[5], 0) / pool.length;
+      row.category = cat; row.min_rarity = minR;
+      row.max_price = niceRound(avg * cm * rand(1.0, 1.4) * wealth);
+      row.line = pick([`${cat} alanında ${RARITY[minR].label.toLowerCase()} ve üzeri parçalar alıyorum.`, `Koleksiyonuma ${RARITY[minR].label.toLowerCase()}+ bir ${cat} eseri ekleyeceğim.`]);
+    }
+    row.ref_price = niceRound(row.max_price * (style === 'cömert' ? 0.78 : style === 'cimri' ? 0.62 : 0.7));
+    row.counter = row.ref_price;
+    return DB.insert('web_ads', row);
+  },
+  adRoll() {
+    this.expireAds();
+    if (this.openAds().length >= WEB.MAX_OPEN) return null;
+    return Math.random() < WEB.CHANCE ? this.newAd() : null;
+  },
+  adFill(n) { let k = 0; while (this.openAds().length < n && k++ < 10) this.newAd(); },
+  adChat(id, who, text, amount) {
+    const a = DB.get('web_ads', id); if (!a) return;
+    DB.update('web_ads', id, { chat: a.chat.concat([{ who, text, amount: amount || null }]).slice(-14) });
+  },
+  adCheck(a, item) {   // ortak doğrulama
+    if (!a || a.status !== 'open' || a.expires_ms <= Date.now()) return 'Bu ilan artık geçerli değil.';
+    if (!item || item.owner_id !== DB.meta.player_id || (item.status !== 'inventory' && item.status !== 'display')) return 'Bu eşya satılamaz (sende olmalı).';
+    if (!this.adMatch(a, item)) return 'Eşya ilandaki aranan parçayla uyuşmuyor.';
+    const why = this.orderBlock(a, item); if (why) return why + '.';
+    return '';
+  },
+  adSettle(a, item, price) {
+    const cat = this.catalogOf(item), col = this.collector(a.collector_id);
+    DB.update('web_ads', a.id, { status: 'sold', paid: price, item_instance_id: item.id });
+    DB.update('items', item.id, { status: 'sold', owner_type: 'npc', owner_id: col.id, display_slot: null });
+    const profit = price - (item.acquired_price || 0);
+    this.addTx('web_sale', price, item.id, col.id, `${cat.name} → ${col.name} (${col.city}, ilan)`, profit);
+    Bus.emit('inventory'); Bus.emit('shop'); Bus.emit('web');
+    return { ok: true, result: 'accepted', price, profit, cat, col, line: pick(WEB_LINES.accept) };
+  },
+  adAccept(adId, itemId) {   // koleksiyoncunun şu anki teklifini kabul et
+    const a = DB.get('web_ads', adId), item = DB.get('items', itemId), err = this.adCheck(a, item);
+    if (err) return { ok: false, result: 'invalid', msg: err };
+    return this.adSettle(a, item, this.adOfferFor(a, item));
+  },
+  adNegotiate(adId, itemId, price) {
+    const a = DB.get('web_ads', adId), item = DB.get('items', itemId), err = this.adCheck(a, item);
+    price = Math.round(Number(price));
+    if (err) return { ok: false, result: 'invalid', msg: err };
+    if (!(price > 0)) return { ok: false, result: 'invalid', msg: 'Geçerli bir fiyat yaz.' };
+    const m = this.adMult(item), cur = this.adOfferFor(a, item), col = this.collector(a.collector_id);
+    this.adChat(a.id, 'me', 'Elimdeki parça için fiyatım:', price);
+    if (price <= cur) return this.adSettle(a, item, price);
+    // reddedildi: teklif tavanın ne kadar üstünde?
+    const over = (price - cur) / cur, ceil = a.max_price * m;
+    const cost = Math.round(clamp(over * 140, 12, 60) * (col.style === 'cimri' ? 1.25 : col.style === 'cömert' ? 0.8 : 1));
+    const patience = Math.max(0, a.patience - cost), round = a.round + 1;
+    if (patience <= 0 || round >= WEB.ROUNDS || price > ceil * 1.5) {
+      const line = pick(WEB_LINES.walk);
+      DB.update('web_ads', a.id, { status: 'withdrawn', patience: 0, round });
+      this.adChat(a.id, 'them', line);
+      Bus.emit('web');
+      return { ok: true, result: 'walked', line, cost };
+    }
+    const next = niceRound(this.adLimit(Object.assign({}, a), round) * m);
+    const kind = over > 0.6 ? 'insult' : over > 0.25 ? 'high' : 'close';
+    const line = pick(WEB_LINES[kind]);
+    DB.update('web_ads', a.id, { round, patience, counter: next });
+    this.adChat(a.id, 'them', `${line} En fazla şu kadar verebilirim:`, next);
+    Bus.emit('web');
+    return { ok: true, result: 'countered', line, counter: next, patience, cost, kind };
+  },
+  adGreet(adId) {   // iletişime ilk geçiş: sohbet başlığı
+    const a = DB.get('web_ads', adId); if (!a || a.chat.length) return;
+    this.adChat(a.id, 'them', pick(WEB_LINES.greet) + ' İlan bütçem:', a.ref_price);
+  },
+  declineAd(id) { const a = DB.get('web_ads', id); if (a && a.status === 'open') { DB.update('web_ads', id, { status: 'withdrawn' }); Bus.emit('web'); } }
+});
+
+// ilan turu: her shopTick'te dener; açılışta en az 3 ilan bulunur
+(function hookAds() {
+  const tick = Game.shopTick, catchUp = Game.shopCatchUp;
+  Game.shopTick = function (count, silent) {
+    let fresh = 0;
+    for (let i = 0; i < (count || 1); i++) if (this.adRoll()) fresh++;
+    const out = tick.call(this, count, silent);
+    out.ads = fresh;
+    if (fresh) Bus.emit('web', out);
+    return out;
+  };
+  Game.shopCatchUp = function () {
+    this.expireAds(); this.adFill(3);
+    return catchUp.call(this);
+  };
+})();
+
 /* ---------- 05-ui-core.js ---------- */
 /* =====================================================================
    BÖLÜM 5 — ARAYÜZ ÇEKİRDEĞİ: durum, bildirimler (toast), modal, gezinme, bakiye
@@ -1775,6 +1987,7 @@ const TABS = [
   { id: 'market',    label: 'Bit Pazarı', ico: '🛒' },
   { id: 'inventory', label: 'Envanter',   ico: '🎒' },
   { id: 'shop',      label: 'Dükkan',     ico: '🏛️' },
+  { id: 'web',       label: 'İlanlar',    ico: '🌐' },
   { id: 'auction',   label: 'Mezat',      ico: '🔨' },
   { id: 'ledger',    label: 'Defter',     ico: '📒' }
 ];
@@ -1849,6 +2062,7 @@ function renderNav() {
     let extra = '';
     if (t.id === 'inventory' && invCount) extra = `<span class="badge-dot">${invCount}</span>`;
     { const k = Game.openOffers().length + Game.openOrders().length; if (t.id === 'shop' && k) extra = `<span class="badge-dot">${k}</span>`; }
+    if (t.id === 'web') { const k = Game.openAds().length; if (k) extra = `<span class="badge-dot">${k}</span>`; }
     if (t.id === 'auction' && live) extra = '<span class="live-dot" title="Mezat sürüyor"></span>';
     const act = UI.tab === t.id;
     return `<button class="tab ${act ? 'active' : ''}" role="tab" aria-selected="${act}" data-tab="${t.id}"><span class="tab-ico">${t.ico}</span><span>${t.label}</span>${extra}</button>`;
@@ -1872,6 +2086,7 @@ function renderActive() {
   else if (UI.tab === 'inventory') renderInventory();
   else if (UI.tab === 'auction') renderAuction();
   else if (UI.tab === 'shop') renderShop();
+  else if (UI.tab === 'web') renderWeb();
   else renderLedger();
   syncAmbience();
 }
@@ -2235,7 +2450,7 @@ function hallFocus(hall) {
 }
 
 /* ------------------------------ DEFTER ------------------------------ */
-const TX_ICON = { purchase: '🛒', sale: '🔨', dealer_sale: '💱', collector_sale: '🏛️', order_sale: '🧾', museum: '🎟️', shop: '🪟', appraisal: '🔍', bailout: '🆘' };
+const TX_ICON = { purchase: '🛒', sale: '🔨', dealer_sale: '💱', collector_sale: '🏛️', order_sale: '🧾', web_sale: '🌐', museum: '🎟️', shop: '🪟', appraisal: '🔍', bailout: '🆘' };
 function renderLedger() {
   const root = $('#view-ledger');
   if (!root) return;
@@ -2721,6 +2936,125 @@ function wireSaves() {
   mount();
   setInterval(() => DB.save(), 10000);
   window.addEventListener('pagehide', () => DB.save());
+}
+
+/* ---------- 07d-ui-web.js ---------- */
+/* =====================================================================
+   BÖLÜM 7d — İLANLAR SEKMESİ: koleksiyoncu ilanları, iletişim ve pazarlık penceresi
+   ===================================================================== */
+UI.web = null;   // açık pazarlık: { id, itemId }
+
+function adReq(a) {
+  const cat = a.kind === 'item' ? DB.get('catalog_items', a.item_id) : null;
+  return [
+    a.kind === 'item' ? `<span class="badge gold">🎯 ${esc(cat.name)}</span>` : `<span class="badge gold">📂 ${esc(a.category)}</span><span class="badge">${RARITY[a.min_rarity].label}+</span>`,
+    `<span class="badge">Durum ≥ ${COND[a.min_condition].label}</span>`,
+    a.need_genuine ? '<span class="badge good">✅ Belgeli orijinal</span>' : '<span class="badge">Taklit olabilir</span>'
+  ].join('');
+}
+function adCard(a) {
+  const c = Game.collector(a.collector_id), mins = Math.max(1, Math.ceil((a.expires_ms - Date.now()) / 60000));
+  const have = Game.adItems(a), ready = have.filter(i => !Game.orderBlock(a, i));
+  const cat = a.kind === 'item' ? DB.get('catalog_items', a.item_id) : null;
+  const art = cat ? `<div class="ad-art r-${cat.rarity}">${photoHTML(cat)}</div>` : `<div class="ad-art ad-cat"><span>${(CATEGORIES.find(x => x[0] === a.category) || ['', '📦'])[1]}</span></div>`;
+  return `<article class="ad">
+    <div class="ad-head"><span class="av lg">${c.avatar}</span><div class="grow"><b>${esc(c.name)}</b><small>📍 ${esc(c.city)} · ${esc(c.trait)}</small></div>
+      <span class="badge">${WEB_STYLE[c.style]}</span></div>
+    ${art}
+    <div class="bubble">“${esc(a.line)}”</div>
+    <div class="tags">${adReq(a)}</div>
+    <div class="ad-foot"><div><small>İlan bütçesi</small><b class="ad-price">${fmt(a.ref_price)}</b><small>pazarlığa açık · ⏳ ${mins} dk</small></div>
+      <div class="actions">
+        ${have.length ? `<button class="btn btn-gold" data-action="ad-open" data-id="${a.id}">💬 İletişime geç (${have.length})</button>`
+          : `<button class="btn btn-ghost" data-tab="market">🛒 Pazarda ara</button>`}
+        <button class="btn btn-ghost btn-sm" data-action="ad-hide" data-id="${a.id}" title="İlanı gizle">Gizle</button>
+      </div></div>
+    ${have.length && !ready.length ? '<small class="o-hint">Eşleşen eşyan var ama belge şartı için önce ekspertiz yaptır.</small>' : ''}
+  </article>`;
+}
+function renderWeb() {
+  const root = $('#view-web'); if (!root) return;
+  Game.expireAds();
+  const list = Game.openAds(), sold = DB.find('transactions', t => t.type === 'web_sale');
+  const total = sold.reduce((s, t) => s + t.amount, 0), profit = sold.reduce((s, t) => s + (t.profit || 0), 0);
+  root.innerHTML = `
+    <div class="view-head"><div><h2>🌐 Koleksiyoncu İlanları</h2><p class="sub">Dünyanın dört bir yanından koleksiyoncular değerli parçalar arıyor. Elindeki eşyayla iletişime geç, fiyatı pazarlıkla yükselt.</p></div></div>
+    <div class="stats">
+      <div class="stat"><small>Açık ilan</small><b>${list.length}/${WEB.MAX_OPEN}</b></div>
+      <div class="stat"><small>İlanla satılan</small><b>${sold.length}</b></div>
+      <div class="stat"><small>Toplam ciro</small><b class="pos">${fmt(total)}</b></div>
+      <div class="stat"><small>Toplam kâr</small><b class="${profit >= 0 ? 'pos' : 'neg'}">${fmt(profit)}</b></div>
+    </div>
+    <div class="hint" style="margin-bottom:12px">💡 İlk teklif hep ilan bütçesidir. Fiyatı yükseltmeyi dene; koleksiyoncu her turda biraz esner ama sabrı tükenirse ilanı kaldırır. Ekspertizli ve mükemmel durumdaki eşyalar daha çok eder.</div>
+    <div class="ads">${list.length ? list.map(adCard).join('') : emptyBox('🌐', 'Şu an açık ilan yok', 'Koleksiyoncular zaman zaman yeni ilan verir. Biraz bekle ya da başka sekmelerde işine devam et.')}</div>`;
+}
+
+function chatHTML(a) {
+  const c = Game.collector(a.collector_id);
+  return a.chat.map(m => m.who === 'me'
+    ? `<div class="msg me"><div class="mb">${esc(m.text)}${m.amount ? ` <b>${fmt(m.amount)}</b>` : ''}</div></div>`
+    : `<div class="msg them"><span class="av">${c.avatar}</span><div class="mb">${esc(m.text)}${m.amount ? ` <b>${fmt(m.amount)}</b>` : ''}</div></div>`).join('');
+}
+function adModalInner() {
+  const W = UI.web, a = DB.get('web_ads', W.id);
+  if (!a) return '';
+  const c = Game.collector(a.collector_id), items = Game.adItems(a), open = a.status === 'open';
+  if (!items.some(i => i.id === W.itemId)) W.itemId = (items.find(i => !Game.orderBlock(a, i)) || items[0] || {}).id;
+  const item = W.itemId && DB.get('items', W.itemId), cur = item ? Game.adOfferFor(a, item) : a.ref_price;
+  const rows = items.map(i => { const cat = Game.catalogOf(i), why = Game.orderBlock(a, i), on = i.id === W.itemId;
+    return `<button class="row pick ${on ? 'on' : ''}" data-action="ad-pick" data-id="${i.id}" ${why ? 'disabled' : ''}>${thumbHTML(cat, i, 'sm')}
+      <div class="grow"><div class="t">${esc(cat.name)}</div><small>${COND[i.condition].label} · ${apprText(i)} · alış ${fmt(i.acquired_price || 0)}${i.status === 'display' ? ' · vitrinde' : ''}</small>${why ? `<small class="neg">${esc(why)}</small>` : ''}</div>
+      <b class="amt">${fmt(Game.adOfferFor(a, i))}</b></button>`; }).join('');
+  const pat = Math.round(a.patience);
+  const closed = a.status === 'sold' ? '🎉 Anlaşma yapıldı.' : a.status === 'withdrawn' ? '🚪 Koleksiyoncu görüşmeyi bitirdi.' : a.status === 'expired' ? '⌛ İlanın süresi doldu.' : '';
+  return `<div class="modal-head"><h3>${c.avatar} ${esc(c.name)} · ${esc(c.city)}</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>
+    <div class="modal-body">
+      <div class="tags">${adReq(a)}<span class="badge">${WEB_STYLE[c.style]}</span></div>
+      <div class="meter-row"><span>Koleksiyoncunun sabrı</span><b>%${pat}</b></div><div class="meter pat"><i style="width:${pat}%"></i></div>
+      <div class="chat" id="ad-chat">${chatHTML(a)}</div>
+      ${open ? `
+      <h4 class="sec-s">Hangi eşyayı sunacaksın?</h4>
+      <div class="list">${rows}</div>
+      ${item ? `<div class="bargain-row"><div class="field"><span>₺</span><input id="ad-input" type="number" inputmode="numeric" min="1" step="50" value="${Math.max(cur + 50, niceRound(cur * 1.25))}" aria-label="İstediğin fiyat"></div>
+        <button class="btn btn-primary" id="ad-send" data-action="ad-send">Fiyat öner</button></div>
+        <div class="quick"><button class="chip" data-action="ad-quick" data-pct="10">+%10</button><button class="chip" data-action="ad-quick" data-pct="25">+%25</button><button class="chip" data-action="ad-quick" data-pct="50">+%50</button><button class="chip" data-action="ad-quick" data-pct="100">×2</button></div>
+        <div class="hint">Şu anki teklif: <b>${fmt(cur)}</b>. Çok yüksek rakamlar sabrı hızla tüketir; sabır bitince ilan kalkar.</div>` : '<div class="hint err">Bu ilana uygun, satılabilir eşyan yok.</div>'}
+      ` : `<div class="hint">${closed}</div>`}
+    </div>
+    ${open && item ? `<div class="modal-foot"><button class="btn btn-gold" data-action="ad-take">Teklifi kabul et · ${fmt(cur)}</button></div>` : ''}`;
+}
+function openAd(adId) {
+  const a = DB.get('web_ads', adId);
+  if (!a || a.status !== 'open') { toast('Bu ilan artık geçerli değil.', 'warn'); renderWeb(); return; }
+  Game.adGreet(a.id);
+  UI.web = { id: a.id, itemId: null };
+  Modal.open(adModalInner(), { onClose: () => { UI.web = null; if (UI.tab === 'web') renderWeb(); } });
+  scrollChat();
+}
+function scrollChat() { const c = $('#ad-chat'); if (c) c.scrollTop = c.scrollHeight; }
+function refreshAd() { if (!UI.web || !Modal.el()) return; Modal.el().innerHTML = adModalInner(); scrollChat(); }
+function adSaleToast(r) {
+  toast(`${r.cat.name} → ${r.col.name} · ${fmt(r.price)} · ${r.profit >= 0 ? 'kâr' : 'zarar'} ${fmt(Math.abs(r.profit))}`, r.profit >= 0 ? 'success' : 'warn', '🌐 İlanla satıldı');
+}
+function adSend() {
+  const W = UI.web, inp = $('#ad-input'); if (!W || !inp || !W.itemId) return;
+  const r = Game.adNegotiate(W.id, W.itemId, inp.value);
+  if (!r.ok) { toast(r.msg, 'warn'); refreshAd(); return; }
+  if (r.result === 'accepted') { Modal.close(); adSaleToast(r); return; }
+  if (r.result === 'walked') toast('Koleksiyoncu görüşmeyi bitirdi, ilan kaldırıldı.', 'error', '🌐 Pazarlık bitti');
+  else toast(`Karşı teklif: ${fmt(r.counter)} · sabır %${Math.round(r.patience)}`, 'warn', '🌐 Karşı teklif');
+  refreshAd();
+}
+function adTake() {
+  const W = UI.web; if (!W || !W.itemId) return;
+  const r = Game.adAccept(W.id, W.itemId);
+  if (!r.ok) { toast(r.msg, 'warn'); refreshAd(); return; }
+  Modal.close(); adSaleToast(r);
+}
+function adQuick(pct) {
+  const W = UI.web, a = W && DB.get('web_ads', W.id), item = W && DB.get('items', W.itemId), inp = $('#ad-input');
+  if (!a || !item || !inp) return;
+  inp.value = niceRound(Game.adOfferFor(a, item) * (1 + pct / 100)); inp.focus();
 }
 
 /* ---------- 08-sound.js ---------- */
@@ -5454,6 +5788,12 @@ const ACTIONS = {
   'buy-cabinet': () => { const r = Game.buyCabinet(); if (!r.ok) toast(r.msg, 'warn'); else toast(`${r.cabinets}. vitrin hazır: +${SHOP.SLOTS} yuva.`, 'success', '🪟 Yeni vitrin'); },
   'offer-accept': el => { const r = Game.acceptOffer(el.dataset.id); if (!r.ok) { toast(r.msg, 'warn'); renderShop(); return; } toast(`${r.cat.name} → ${r.buyer.name} · ${fmt(r.price)} · ${r.profit >= 0 ? 'kâr' : 'zarar'} ${fmt(Math.abs(r.profit))}`, r.profit >= 0 ? 'success' : 'warn', '🏛️ Koleksiyoncuya satıldı'); },
   'offer-decline': el => { Game.declineOffer(el.dataset.id); },
+  'ad-open': el => openAd(el.dataset.id),
+  'ad-pick': el => { if (UI.web) { UI.web.itemId = el.dataset.id; refreshAd(); } },
+  'ad-send': () => adSend(),
+  'ad-take': () => adTake(),
+  'ad-quick': el => adQuick(Number(el.dataset.pct)),
+  'ad-hide': el => { Game.declineAd(el.dataset.id); },
   'order-deliver': el => openOrderDeliver(el.dataset.id),
   'order-give': el => { const r = Game.fulfillOrder(el.dataset.oid, el.dataset.id); Modal.close(); if (!r.ok) { toast(r.msg, 'warn', 'Teslim edilemedi'); return; } toast(`${r.cat.name} → ${r.cust.name} · ${fmt(r.pay)}${r.bonus > 0 ? ' (+' + fmt(r.bonus) + ' ek ödeme)' : ''} · ${r.profit >= 0 ? 'kâr' : 'zarar'} ${fmt(Math.abs(r.profit))}`, r.profit >= 0 ? 'success' : 'warn', '🧾 Sipariş teslim edildi'); },
   'order-decline': el => { Game.declineOrder(el.dataset.id); },
@@ -5507,6 +5847,11 @@ function wireBus() {
     renderNav();
     if (UI.tab === 'auction' && UI.auctionBuilt && !Auction.live()) return;   // mezat az önce bitti: çekiç animasyonu 'auction:end' ile oynatılacak
     if (UI.tab === 'inventory' || UI.tab === 'auction' || UI.tab === 'shop') renderActive();
+  });
+  Bus.on('web', d => {
+    renderNav();
+    if (d && d.ads) toast('İnternette yeni bir koleksiyoncu ilanı yayınlandı.', 'info', '🌐 Yeni ilan');
+    if (UI.tab === 'web' && !Modal.isOpen()) renderWeb();
   });
   Bus.on('shop', d => {
     renderNav();
