@@ -470,6 +470,21 @@ pre.sql{margin:0;padding:14px;border-radius:12px;background:#0a0c10;border:1px s
 .quick{display:flex;gap:6px;margin:8px 0;flex-wrap:wrap}
 .ad .actions .btn{flex-direction:row;white-space:nowrap;width:auto;height:auto}
 
+/* ---- Pazar haritası, konum, atölye ---- */
+.head-actions{display:flex;gap:8px;flex-wrap:wrap}
+.loc-banner{display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:12px;border-radius:14px;background:linear-gradient(120deg,#1b2a20,#14201a);border:1px solid #2f5a42}
+.loc-banner.closed{background:linear-gradient(120deg,#2a1b1b,#1f1515);border-color:#5a2f2f}
+.loc-banner b{display:block}.loc-banner small{display:block;color:var(--muted);font-size:12px}
+.loc-ico{font-size:30px}.loc-desc{margin-top:2px}
+.mk{display:flex;gap:12px;align-items:center;padding:10px;margin-bottom:8px;border-radius:12px;background:var(--surface);border:1px solid var(--border)}
+.mk.cur{border-color:var(--gold);background:rgba(227,180,95,.08)}
+.mk-ico{font-size:26px;flex:none}
+.mk .grow{min-width:0}.mk .grow small{display:block;color:var(--muted);font-size:12px;margin:2px 0}
+.mk-go{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none;text-align:right}
+.mk-go b{font-size:15px;color:var(--gold2)}.mk-go small{font-size:11px;color:var(--muted)}
+.inv-tools{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:520px){.mk{flex-wrap:wrap}.mk-go{flex-direction:row;align-items:center;width:100%;justify-content:space-between}}
+
 </style>
 </head>
 <body>
@@ -785,6 +800,7 @@ create table players (
   id          uuid primary key default gen_random_uuid(),  -- ileride auth.users.id
   username    text not null,
   balance     numeric(14,2) not null default 5000,
+  location    text,                                   -- bulunduğu pazar (MARKETS id)
   created_at  timestamptz not null default now()
 );
 
@@ -830,6 +846,7 @@ create table items (                      -- fiziksel eşya örnekleri
 
 create table market_listings (
   id               uuid primary key default gen_random_uuid(),
+  market_id        text,                              -- hangi pazarda (şehir/semt)
   item_instance_id uuid not null references items(id),
   seller_id        text not null references npcs(id),
   asking_price     numeric(12,2) not null,
@@ -885,7 +902,7 @@ create table bids (
 create table transactions (               -- oyuncunun para defteri
   id               uuid primary key default gen_random_uuid(),
   player_id        uuid not null references players(id),
-  type             text not null check (type in ('purchase','sale','dealer_sale','collector_sale','order_sale','web_sale','appraisal','museum','shop','bailout')),
+  type             text not null check (type in ('purchase','sale','dealer_sale','collector_sale','order_sale','web_sale','travel','repair','appraisal','museum','shop','bailout')),
   amount           numeric(12,2) not null,   -- (+) gelir, (−) gider
   profit           numeric(12,2),
   item_instance_id uuid references items(id),
@@ -1529,6 +1546,209 @@ const Auction = {
     return DB.find('auctions', a => a.status !== 'live').sort((x, y) => ((x.ended_at || '') < (y.ended_at || '') ? 1 : -1)).slice(0, limit || 6);
   }
 };
+
+/* ---------- 04-markets.js ---------- */
+/* =====================================================================
+   BÖLÜM 4a — GEZİLEN PAZARLAR (şehirler, yol ücreti) VE ATÖLYE (temizlik / onarım / restorasyon)
+   Her pazarın kendi tezgâhları vardır (market_listings.market_id). Oyuncunun konumu players.location'dadır.
+   Pazar günleri gerçek takvime göre: days = [0=Pzt … 6=Paz] ya da null (her gün açık).
+   Kaynaklar: Momondo, Daily Sabah, HassaHaber'in Türkiye bit/antika pazarı rehberleri.
+   ===================================================================== */
+const DEFAULT_MARKET = 'kadikoy-antikacilar';
+const WEEKDAYS = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
+const WDS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+const CITIES = {
+  'İstanbul': { lat: 41.01, lon: 28.98 }, 'Ankara': { lat: 39.93, lon: 32.86 }, 'İzmir': { lat: 38.42, lon: 27.14 },
+  'Bursa': { lat: 40.19, lon: 29.06 }, 'Eskişehir': { lat: 39.78, lon: 30.52 }, 'Antalya': { lat: 36.90, lon: 30.71 },
+  'Bodrum': { lat: 37.04, lon: 27.43 }, 'Gaziantep': { lat: 37.07, lon: 37.38 }
+};
+// tier: junk (uygun, bol ıvır zıvır) | mid | high (pahalı, nadir eser bol)
+const TIERS = {
+  junk: { label: 'Uygun fiyatlı', rw: { common: 1.7, uncommon: 1.1, rare: 0.6, epic: 0.2, legendary: 0.04 }, price: 0.86, fake: 1.0, cheap: 4 },
+  mid:  { label: 'Karışık',       rw: { common: 1, uncommon: 1, rare: 1, epic: 1, legendary: 1 },                price: 1.0,  fake: 1.0, cheap: 3 },
+  high: { label: 'Pahalı · seçkin', rw: { common: 0.35, uncommon: 0.8, rare: 1.4, epic: 2.4, legendary: 3.2 },    price: 1.18, fake: 0.8, cheap: 1 }
+};
+const MARKETS = [
+  { id: 'kadikoy-antikacilar', city: 'İstanbul', name: 'Kadıköy Antikacılar Sokağı', ico: '🏘️', tier: 'mid',  size: 8, days: null, spec: ['Ev Eşyası', 'Seramik & Cam', 'Müzik & Ses'], desc: 'Moda’nın arka sokaklarındaki antikacılar; her gün açık, her şeyden biraz.' },
+  { id: 'kadikoy-fikirtepe', city: 'İstanbul', name: 'Kadıköy Antika Pazarı (Fikirtepe)', ico: '🏬', tier: 'mid',  size: 9, days: [6], spec: ['Saat & Mekanik', 'Sanat', 'Mücevher & Sikke'], desc: 'Kapalı pazar yeri, pazar günleri kurulur. Aylık müzayedeleriyle ünlü.' },
+  { id: 'sahaflar', city: 'İstanbul', name: 'Beyazıt Sahaflar Çarşısı', ico: '📚', tier: 'high', size: 7, days: [0, 1, 2, 3, 4, 5], spec: ['Kâğıt & Kitap', 'Bilim & Seyahat'], desc: 'Osmanlı’dan beri kitapçıların çarşısı: yazma, harita, nadir basım. Taklit az, fiyat yüksek.' },
+  { id: 'horhor', city: 'İstanbul', name: 'Horhor Antikacılar Çarşısı', ico: '🏺', tier: 'mid', size: 8, days: [0, 1, 2, 3, 4, 5], spec: ['Seramik & Cam', 'Saat & Mekanik', 'Halı & Tekstil'], desc: 'Aksaray’da çok katlı antika hanı: vazo, saat, eski halı, dekoratif parçalar.' },
+  { id: 'cukurcuma', city: 'İstanbul', name: 'Çukurcuma Antikacıları', ico: '🕯️', tier: 'high', size: 7, days: [0, 1, 2, 3, 4, 5], spec: ['Sanat', 'Ev Eşyası', 'Mücevher & Sikke'], desc: 'Cihangir’in butik antikacıları. Kaliteli ama pahalı; turistik fiyatlar.' },
+  { id: 'kapalicarsi', city: 'İstanbul', name: 'Kapalıçarşı (Sandal Bedesteni)', ico: '🕌', tier: 'high', size: 8, days: [0, 1, 2, 3, 4, 5], spec: ['Halı & Tekstil', 'Mücevher & Sikke', 'Askeri'], desc: 'Dünyanın en eski kapalı çarşısı. Her şey bulunur, tuzaklar da…' },
+  { id: 'feriköy', city: 'İstanbul', name: 'Feriköy (Bomonti) Antika Pazarı', ico: '🧸', tier: 'mid', size: 9, days: [6], spec: ['Oyuncak', 'Seramik & Cam', 'Ev Eşyası'], desc: 'Pazar günleri kurulan nostalji pazarı: oyuncak, cam eşya, eski giysi.' },
+  { id: 'mecidiyekoy', city: 'İstanbul', name: 'Mecidiyeköy Antikalar Çarşısı', ico: '🪑', tier: 'mid', size: 7, days: [0, 1, 2, 3, 4, 5], spec: ['Ev Eşyası', 'Halı & Tekstil'], desc: 'Kuştepe’de antika mobilya ve büyük parçalar.' },
+  { id: 'kucukpazar', city: 'İstanbul', name: 'Küçükpazar & Dolapdere Bit Pazarı', ico: '🧺', tier: 'junk', size: 9, days: null, spec: ['Ev Eşyası', 'Oyuncak', 'Kâğıt & Kitap'], desc: 'Gerçek bir bit pazarı: ucuz, karışık, bol pazarlık. Şansına bak.' },
+  { id: 'ulus', city: 'Ankara', name: 'Ulus Samanpazarı Bit Pazarı', ico: '🏛️', tier: 'junk', size: 9, days: null, spec: ['Ev Eşyası', 'Askeri'], desc: 'İtfaiye Meydanı’nda mobilya, mutfak eşyası ve eski ıvır zıvır.' },
+  { id: 'ayranci', city: 'Ankara', name: 'Ayrancı Antika Pazarı', ico: '🏺', tier: 'mid', size: 8, days: [6], spec: ['Seramik & Cam', 'Sanat', 'Saat & Mekanik'], desc: 'Kapalı pazar yerinde koleksiyonerlerin buluşması (ayın ilk pazarı).' },
+  { id: 'cayyolu', city: 'Ankara', name: 'Çayyolu Antika Pazarı', ico: '📻', tier: 'mid', size: 8, days: [6], spec: ['Müzik & Ses', 'Bilim & Seyahat', 'Mücevher & Sikke'], desc: 'Eski telefon, plak, fotoğraf makinesi ve biblolar.' },
+  { id: 'izmir-bornova', city: 'İzmir', name: 'Bornova İkinci El ve Antika Pazarı', ico: '🌿', tier: 'mid', size: 8, days: [1, 6], spec: ['Halı & Tekstil', 'Ev Eşyası', 'Oyuncak'], desc: 'Salı ve pazar günleri antika ve ikinci el karışık.' },
+  { id: 'izmir-yesildere', city: 'İzmir', name: 'İzmir Bit Pazarı (Yenişehir)', ico: '🚲', tier: 'junk', size: 9, days: [4, 5, 6], spec: ['Müzik & Ses', 'Oyuncak', 'Ev Eşyası'], desc: 'Bisikletten piyanoya her şey; nostaljik ve ucuz. Cuma–pazar.' },
+  { id: 'bursa-bit', city: 'Bursa', name: 'Bursa Bit Pazarı', ico: '🧰', tier: 'junk', size: 8, days: [5, 6], spec: ['Askeri', 'Kâğıt & Kitap', 'Saat & Mekanik'], desc: 'İnönü Caddesi’nde hafta sonu: değeri bilinmeyen tuhaf parçalar.' },
+  { id: 'bursa-nilufer', city: 'Bursa', name: 'Nilüfer Antika Pazarı', ico: '🧵', tier: 'high', size: 7, days: [6], spec: ['Halı & Tekstil', 'Kâğıt & Kitap'], desc: 'Osmanlı tekstili, ipek, ebru ve hat sanatı. Ayın üçüncü pazarı.' },
+  { id: 'eskisehir', city: 'Eskişehir', name: 'Eskişehir Antika Pazarı (Tepebaşı)', ico: '🚂', tier: 'mid', size: 8, days: [6], spec: ['Oyuncak', 'Saat & Mekanik', 'Seramik & Cam'], desc: 'Uluönder kapalı pazarında ayın ikinci pazarı; temiz ve düzenli.' },
+  { id: 'antalya-varsak', city: 'Antalya', name: 'Varsak Bit Pazarı', ico: '🌴', tier: 'junk', size: 8, days: [5, 6], spec: ['Ev Eşyası', 'Halı & Tekstil'], desc: 'Kepez’de ikinci el mobilya ve ev eşyası; hafta sonu.' },
+  { id: 'bodrum', city: 'Bodrum', name: 'Bodrum Antika Pazarı', ico: '⛵', tier: 'high', size: 7, days: [6], spec: ['Sanat', 'Mücevher & Sikke', 'Bilim & Seyahat', 'Seramik & Cam'], desc: 'Yalnızca kaliteli antikaların satıldığı seçkin pazar. Pahalı, taklit az.' },
+  { id: 'gaziantep', city: 'Gaziantep', name: 'Gaziantep Bit Pazarı', ico: '🥘', tier: 'junk', size: 8, days: null, spec: ['Askeri', 'Halı & Tekstil', 'Ev Eşyası'], desc: 'İsmet Paşa Mahallesi’nde uygun fiyatlı ikinci el ve eski eşya dükkânları.' }
+];
+const MARKET_BY_ID = Object.fromEntries(MARKETS.map(m => [m.id, m]));
+
+function roadKm(c1, c2) {
+  if (c1 === c2) return 0;
+  const a = CITIES[c1], b = CITIES[c2], R = 6371, rad = d => d * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(h)) * 1.28);
+}
+const TRAVEL = { LOCAL: 55, BASE: 140, PER_KM: 1.15, DAY_KM: 300 };
+
+Object.assign(Game, {
+  /* ------------------------------ konum & takvim ------------------------------ */
+  loc() { const p = this.player(); return (p && p.location && MARKET_BY_ID[p.location]) ? p.location : DEFAULT_MARKET; },
+  market(id) { return MARKET_BY_ID[id || this.loc()]; },
+  weekday(day) { return ((day == null ? DB.meta.day : day) + 5) % 7; },          // 1. gün Pazar
+  isOpen(m, day) { m = m || this.market(); return !m.days || m.days.includes(this.weekday(day)); },
+  openDaysText(m) { return m.days ? (m.days.length === 6 && !m.days.includes(6) ? 'Pzt–Cmt (Pazar kapalı)' : m.days.map(d => WDS[d]).join(', ')) : 'Her gün'; },
+  nextOpenIn(m) { for (let k = 0; k < 7; k++) if (this.isOpen(m, DB.meta.day + k)) return k; return 0; },
+  travelInfo(to) {
+    const from = this.market(), dest = this.market(to);
+    const km = roadKm(from.city, dest.city);
+    if (from.id === dest.id) return { fare: 0, km: 0, days: 0, same: true };
+    const fare = km === 0 ? TRAVEL.LOCAL : niceRound(TRAVEL.BASE + km * TRAVEL.PER_KM);
+    return { fare, km, days: km >= TRAVEL.DAY_KM ? 1 : 0, same: false, local: km === 0, mode: km === 0 ? 'Metro / vapur / otobüs' : km > 700 ? 'Uçak / uzun yol otobüsü' : 'Şehirlerarası otobüs' };
+  },
+
+  /* ------------------------------ tezgâhlar (pazar başına) ------------------------------ */
+  listings() {
+    if (!this.isOpen()) return [];
+    const loc = this.loc();
+    return DB.find('market_listings', l => l.status === 'active' && (l.market_id || DEFAULT_MARKET) === loc)
+      .sort((a, b) => (a.created_at === b.created_at ? 0 : a.created_at < b.created_at ? 1 : -1));
+  },
+  genListing(cheapOnly) {
+    const m = this.market(), T0 = TIERS[m.tier];
+    const cats = DB.find('catalog_items');
+    const taken = new Set(this.listings().map(l => DB.get('items', l.item_instance_id).item_id));
+    let cat = null;
+    for (let tries = 0; tries < 8 && !cat; tries++) {
+      const rar = cheapOnly ? [['common', 60], ['uncommon', 40]] : Object.keys(RARITY).map(k => [k, RARITY[k].w * T0.rw[k]]);
+      const r = wpick(rar);
+      let pool = cats.filter(c => c.rarity === r);
+      const spec = pool.filter(c => m.spec.includes(c.category));
+      if (spec.length && Math.random() < 0.6) pool = spec;
+      const cand = pick(pool);
+      if (cand && (!taken.has(cand.id) || tries === 7)) cat = cand;
+    }
+    cat = cat || pick(cats);
+    const seller = pick(DB.find('npcs', n => n.role === 'seller')), T = seller.traits;
+    const cond = wpick(Object.entries(COND).map(([k, v]) => [k, v.w]));
+    const auth = wpick(Object.entries(AUTH).map(([k, v]) => [k, v.w * (k === 'fake' ? T0.fake : 1)]));
+    const perceived = Math.round(cat.base_value * COND[cond].mult * rand(0.95, 1.05));
+    const trueV = Math.round(cat.base_value * COND[cond].mult * AUTH[auth].mult * rand(0.93, 1.07));
+    const asking = niceRound(perceived * rand(0.90, 1.22) * T.markup * T0.price);
+    let reserve = niceRound(asking * clamp(rand(0.64, 0.92) * T.floor, 0.6, 0.95));
+    if (reserve >= asking) reserve = Math.max(5, asking - 5);
+    const item = DB.insert('items', { item_id: cat.id, owner_type: 'npc', owner_id: seller.id, status: 'market', condition: cond,
+      authenticity: auth, perceived_value: perceived, true_value: trueV, appraised: false, acquired_price: null, acquired_at: null });
+    return DB.insert('market_listings', { market_id: m.id, item_instance_id: item.id, seller_id: seller.id, asking_price: asking, initial_price: asking,
+      reserve_price: reserve, patience: T.patience, max_patience: T.patience, status: 'active', sold_price: null, closed_at: null });
+  },
+  refillMarket(stale) {
+    if (!this.isOpen()) return 0;
+    const m = this.market(), T0 = TIERS[m.tier];
+    let added = 0, guard = 0;
+    while (this.listings().length < m.size && guard++ < 40) {
+      const cheap = this.listings().filter(l => this.catalogOf(DB.get('items', l.item_instance_id)).base_value <= 1500).length;
+      const l = this.genListing(cheap < T0.cheap);
+      if (stale) l.created_at = new Date(Date.parse(l.created_at) - 120000).toISOString();
+      added++;
+    }
+    return added;
+  },
+  freshMarket() {   // bu pazarın tezgâhları son ziyaretten beri yenilenmeli mi?
+    const st = DB.meta.market_day || (DB.meta.market_day = {}), id = this.loc();
+    if (st[id] === undefined && this.listings().length) { st[id] = DB.meta.day; return; }   // ilk kayıt (yeni oyun / eski kayıt)
+    if (st[id] === DB.meta.day) return;
+    this.listings().filter(l => !this.locked.has(l.id)).forEach(l => this.withdraw(l));
+    st[id] = DB.meta.day;
+    this.refillMarket(true);
+    this.gc();
+  },
+  marketTick() {
+    let removed = null;
+    if (this.isOpen()) {
+      const open = this.listings().filter(l => !this.locked.has(l.id));
+      if (open.length > 4 && Math.random() < 0.28) { const l = pick(open); removed = this.catalogOf(DB.get('items', l.item_instance_id)).name; this.withdraw(l); }
+      this.refillMarket();
+    }
+    this.gc();
+    Bus.emit('market:tick', { removed, added: 0 });
+  },
+  newDay() {
+    const st = DB.meta.market_day || (DB.meta.market_day = {});
+    if (st[this.loc()] === undefined) st[this.loc()] = DB.meta.day;
+    DB.meta.day += 1;
+    this.freshMarket();
+    DB.dirty();
+    Bus.emit('market');
+    return DB.meta.day;
+  },
+  travel(to) {
+    const dest = MARKET_BY_ID[to];
+    if (!dest) return { ok: false, msg: 'Böyle bir pazar yok.' };
+    const t = this.travelInfo(to);
+    if (t.same) return { ok: false, msg: 'Zaten buradasın.' };
+    if (this.balance() < t.fare) return { ok: false, msg: `Yol ücreti (${fmt(t.fare)}) için bakiyen yetersiz.` };
+    const from = this.market();
+    this.locked.clear();
+    DB.update('players', this.player().id, { location: dest.id });
+    DB.meta.day += t.days;
+    this.addTx('travel', -t.fare, null, null, `${from.city === dest.city ? from.name + ' → ' + dest.name : from.city + ' → ' + dest.city + ' (' + dest.name + ')'} · ${t.mode}`);
+    this.freshMarket();
+    DB.dirty();
+    Bus.emit('market'); Bus.emit('travel', { to: dest, info: t });
+    return { ok: true, market: dest, info: t, open: this.isOpen(dest) };
+  },
+
+  /* ------------------------------ atölye ------------------------------ */
+  RESTORE_MAX: 2,
+  SERVICES: [
+    { id: 'diy',     name: 'Kendin Dene',        ico: '🪥', rate: 0.015, min: 15,  note: 'Ucuz ama riskli: parçaya zarar verebilirsin.' },
+    { id: 'clean',   name: 'Temizlik & Cila',    ico: '🧼', rate: 0.04,  min: 30,  note: 'Hafif bakım; çoğu zaman bir kademe yükseltir.' },
+    { id: 'repair',  name: 'Usta Tamiri',        ico: '🔧', rate: 0.11,  min: 120, note: 'Köhne ve orta durumdakiler kesin düzelir.' },
+    { id: 'restore', name: 'Müze Restorasyonu',  ico: '✨', rate: 0.24,  min: 400, note: 'Bir kademe kesin, çoğu kez iki kademe.' }
+  ],
+  CONDS: ['poor', 'fair', 'good', 'excellent'],
+  serviceFee(item, svc) { return Math.max(svc.min, niceRound(this.valueFor(item) * svc.rate)); },
+  serviceHint(item, svc) {
+    const c = item.condition;
+    if (c === 'excellent') return 'Zaten mükemmel';
+    if (svc.id === 'diy') return c === 'poor' ? '%45 yükselir, %55 değişmez' : '%45 yükselir, %20 zarar görür';
+    if (svc.id === 'clean') return '%' + ({ poor: 70, fair: 40, good: 15 }[c]) + ' ihtimalle yükselir';
+    if (svc.id === 'repair') return c === 'good' ? '%50 ihtimalle yükselir' : 'Kesin yükselir';
+    return c === 'good' ? 'Kesin yükselir' : 'Kesin yükselir, %40 iki kademe';
+  },
+  repairable(item) { return item.owner_type === 'player' && item.status === 'inventory'; },
+  restoreItem(itemId, svcId) {
+    const item = DB.get('items', itemId), svc = this.SERVICES.find(s => s.id === svcId);
+    if (!item || !svc || !this.repairable(item)) return { ok: false, msg: 'Bu eşya atölyeye verilemez.' };
+    if ((item.restored || 0) >= this.RESTORE_MAX) return { ok: false, msg: `Bu eşya en fazla ${this.RESTORE_MAX} kez işlem görebilir.` };
+    if (item.condition === 'excellent') return { ok: false, msg: 'Eşya zaten mükemmel durumda.' };
+    const fee = this.serviceFee(item, svc);
+    if (this.balance() < fee) return { ok: false, msg: `Ücret (${fmt(fee)}) için bakiyen yetersiz.` };
+    const idx = this.CONDS.indexOf(item.condition), r = Math.random();
+    let step = 0;
+    if (svc.id === 'diy') step = r < 0.2 ? (idx > 0 ? -1 : 0) : r < 0.55 ? 0 : 1;
+    else if (svc.id === 'clean') step = r < ({ poor: 0.7, fair: 0.4, good: 0.15 }[item.condition]) ? 1 : 0;
+    else if (svc.id === 'repair') step = (item.condition === 'good') ? (r < 0.5 ? 1 : 0) : 1;
+    else step = 1 + (r < 0.4 && idx + 1 < 3 ? 1 : 0);
+    const ni = clamp(idx + step, 0, 3), cond = this.CONDS[ni], cat = this.catalogOf(item);
+    const k = COND[cond].mult / COND[item.condition].mult;
+    DB.update('items', item.id, { condition: cond, true_value: Math.round(item.true_value * k), perceived_value: Math.round(item.perceived_value * k), restored: (item.restored || 0) + 1 });
+    this.addTx('repair', -fee, item.id, null, `${cat.name} · ${svc.name}`);
+    Bus.emit('inventory'); Bus.emit('market');
+    return { ok: true, item: DB.get('items', item.id), cat, svc, fee, from: COND[this.CONDS[idx]].label, to: COND[cond].label, step };
+  }
+});
 
 /* ---------- 04-shop.js ---------- */
 /* =====================================================================
@@ -2194,11 +2414,13 @@ function renderMarket() {
   const shown = all.filter(v => f === 'all' || v.cat.category === f);
   root.innerHTML = `
     <div class="view-head">
-      <div><h2>Bit Pazarı</h2><p class="sub">Gün ${DB.meta.day} · Tezgâhları gez, pazarlık et, fırsatı kap — ama taklitlere dikkat!</p></div>
-      <button class="btn btn-ghost btn-sm" data-action="new-day">🌅 Yeni gün · pazarı yenile</button>
+      <div><h2>Bit Pazarı</h2><p class="sub">Gün ${DB.meta.day} · ${WEEKDAYS[Game.weekday()]} · Tezgâhları gez, pazarlık et, fırsatı kap — ama taklitlere dikkat!</p></div>
+      <div class="head-actions"><button class="btn btn-gold btn-sm" data-action="open-map">🚌 Pazar değiştir</button>
+      <button class="btn btn-ghost btn-sm" data-action="new-day">🌅 Yeni gün</button></div>
     </div>
-    <div class="chips">${chip('market', 'all', '🏷️', 'Tümü', all.length)}${cats.map(x => chip('market', x.c, x.ico, x.c, x.n)).join('')}</div>
-    <div class="grid">${shown.length ? shown.map(listingCard).join('') : emptyBox('🪑', 'Bu kategoride tezgâh boş', 'Başka bir kategoriye bak ya da yeni güne geç.')}</div>`;
+    ${marketBanner()}
+    ${Game.isOpen() ? `<div class="chips">${chip('market', 'all', '🏷️', 'Tümü', all.length)}${cats.map(x => chip('market', x.c, x.ico, x.c, x.n)).join('')}</div>` : ''}
+    <div class="grid">${!Game.isOpen() ? closedBox() : shown.length ? shown.map(listingCard).join('') : emptyBox('🪑', 'Bu kategoride tezgâh boş', 'Başka bir kategoriye bak ya da yeni güne geç.')}</div>`;
 }
 
 /* ------------------------------ ENVANTER ------------------------------ */
@@ -2215,7 +2437,7 @@ function invCard(item) {
     <span class="ribbon">${RARITY[cat.rarity].label}</span>
     ${photoHTML(cat, item)}
     ${itemHead(cat, item)}
-    <div class="tags">${condBadge(item)}${apprBadge(item)}${inAuc ? '<span class="badge warn">🔨 Mezatta</span>' : ''}</div>
+    <div class="tags">${condBadge(item)}${apprBadge(item)}${item.restored ? `<span class="badge" title="Atölyede işlem gördü">🧰 Onarıldı ×${item.restored}</span>` : ''}${inAuc ? '<span class="badge warn">🔨 Mezatta</span>' : ''}</div>
     ${inAuc ? '' : orderTag(item)}
     <div class="kv">
       <div><small>Alış fiyatı</small><b>${fmt(cost)}</b></div>
@@ -2230,7 +2452,8 @@ function invCard(item) {
            <button class="btn btn-ghost" data-action="dealer" data-id="${item.id}" title="Hızlı nakit, düşük fiyat">💱 Tüccara · ${fmt(Game.dealerQuote(item))}</button>
          </div>
          <button class="btn btn-ghost btn-sm inv-display" data-action="display-quick" data-id="${item.id}">🏛️ Vitrine koy</button>
-         ${item.appraised ? '' : `<button class="btn btn-ghost btn-sm" data-action="appraise" data-id="${item.id}">🔍 Ekspertiz yaptır · ${fmt(Game.appraisalFee(item))}</button>`}`}
+         <div class="inv-tools">${item.appraised ? '' : `<button class="btn btn-ghost btn-sm" data-action="appraise" data-id="${item.id}">🔍 Ekspertiz · ${fmt(Game.appraisalFee(item))}</button>`}
+      ${item.condition === 'excellent' || (item.restored || 0) >= Game.RESTORE_MAX ? '' : `<button class="btn btn-ghost btn-sm" data-action="workshop" data-id="${item.id}">🧰 Atölye</button>`}</div>`}
   </article>`;
 }
 
@@ -2450,7 +2673,7 @@ function hallFocus(hall) {
 }
 
 /* ------------------------------ DEFTER ------------------------------ */
-const TX_ICON = { purchase: '🛒', sale: '🔨', dealer_sale: '💱', collector_sale: '🏛️', order_sale: '🧾', web_sale: '🌐', museum: '🎟️', shop: '🪟', appraisal: '🔍', bailout: '🆘' };
+const TX_ICON = { purchase: '🛒', sale: '🔨', dealer_sale: '💱', collector_sale: '🏛️', order_sale: '🧾', web_sale: '🌐', travel: '🚌', repair: '🧰', museum: '🎟️', shop: '🪟', appraisal: '🔍', bailout: '🆘' };
 function renderLedger() {
   const root = $('#view-ledger');
   if (!root) return;
@@ -3055,6 +3278,78 @@ function adQuick(pct) {
   const W = UI.web, a = W && DB.get('web_ads', W.id), item = W && DB.get('items', W.itemId), inp = $('#ad-input');
   if (!a || !item || !inp) return;
   inp.value = niceRound(Game.adOfferFor(a, item) * (1 + pct / 100)); inp.focus();
+}
+
+/* ---------- 07e-ui-travel.js ---------- */
+/* =====================================================================
+   BÖLÜM 7e — PAZAR HARİTASI / YOLCULUK VE ATÖLYE ARAYÜZÜ
+   ===================================================================== */
+function marketBanner() {
+  const m = Game.market(), T = TIERS[m.tier], open = Game.isOpen();
+  return `<div class="loc-banner ${open ? '' : 'closed'}">
+    <span class="loc-ico">${m.ico}</span>
+    <div class="grow"><b>📍 ${esc(m.name)}</b><small>${esc(m.city)} · ${esc(T.label)} · ${esc(Game.openDaysText(m))}</small>
+      <small class="loc-desc">${esc(m.desc)}</small></div>
+    <span class="badge ${open ? 'good' : 'bad'}">${open ? '● Bugün açık' : '● Bugün kapalı'}</span>
+  </div>`;
+}
+function closedBox() {
+  const m = Game.market(), k = Game.nextOpenIn(m);
+  return emptyBox('🚪', 'Pazar bugün kapalı', `${m.name} ${Game.openDaysText(m)} günleri açık${k ? ` (${k} gün sonra)` : ''}. Başka bir pazara git ya da günü ilerlet.`,
+    '<button class="btn btn-gold" data-action="open-map">🚌 Açık bir pazara git</button>');
+}
+function mapRow(m) {
+  const cur = m.id === Game.loc(), t = Game.travelInfo(m.id), open = Game.isOpen(m, DB.meta.day + t.days), can = Game.balance() >= t.fare;
+  const T = TIERS[m.tier];
+  return `<div class="mk ${cur ? 'cur' : ''}">
+    <span class="mk-ico">${m.ico}</span>
+    <div class="grow"><b>${esc(m.name)}</b><small>${esc(m.desc)}</small>
+      <div class="tags"><span class="badge ${m.tier === 'high' ? 'gold' : ''}">${esc(T.label)}</span><span class="badge">📅 ${esc(Game.openDaysText(m))}</span>${m.spec.slice(0, 3).map(c => `<span class="badge">${esc(c)}</span>`).join('')}</div></div>
+    <div class="mk-go">
+      ${cur ? '<span class="badge good">📍 Buradasın</span>'
+        : `<small>${t.local ? 'Şehir içi' : t.km + ' km'}${t.days ? ' · +1 gün' : ''}</small><b>${fmt(t.fare)}</b>
+           <small class="${open ? 'pos' : 'neg'}">${open ? 'Varışta açık' : 'Varışta kapalı'}</small>
+           <button class="btn btn-primary btn-sm" data-action="travel" data-id="${m.id}" ${can ? '' : 'disabled title="Bakiyen yetersiz"'}>Git</button>`}
+    </div></div>`;
+}
+function openMap() {
+  const cities = [...new Set(MARKETS.map(m => m.city))];
+  const here = Game.market();
+  Modal.open(`<div class="modal-head"><h3>🗺️ Pazar Haritası</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>
+    <div class="modal-body">
+      <p class="hint">Bugün <b>${WEEKDAYS[Game.weekday()]}</b> (Gün ${DB.meta.day}). Şu an <b>${esc(here.city)}</b>’dasın. Şehir içi gezi ucuz; şehirler arası yol ücretlidir ve ${TRAVEL.DAY_KM} km üzeri yolculuk bir gün sürer.</p>
+      ${cities.map(c => `<h4 class="sec-s">${c === here.city ? '📍 ' : ''}${esc(c)}</h4>${MARKETS.filter(m => m.city === c).map(mapRow).join('')}`).join('')}
+    </div>`);
+}
+function doTravel(id) {
+  const r = Game.travel(id);
+  if (!r.ok) { toast(r.msg, 'warn'); return; }
+  Modal.close();
+  if (UI.tab !== 'market') switchTab("market"); else renderMarket();
+  toast(`${r.market.name} · ${fmt(r.info.fare)}${r.info.days ? ' · +1 gün' : ''}${r.open ? '' : ' — bugün kapalı!'}`, r.open ? 'success' : 'warn', `🚌 ${r.market.city}`);
+}
+
+UI.work = null;
+function workModalInner() {
+  const item = DB.get('items', UI.work), cat = item && Game.catalogOf(item);
+  if (!item) return '';
+  const left = Game.RESTORE_MAX - (item.restored || 0), ref = Game.valueFor(item);
+  const svc = Game.SERVICES.map(s => { const fee = Game.serviceFee(item, s), can = Game.balance() >= fee && item.condition !== 'excellent' && left > 0;
+    return `<div class="row"><span class="mk-ico">${s.ico}</span><div class="grow"><div class="t">${s.name}</div><small>${s.note}</small><small class="pos">${Game.serviceHint(item, s)}</small></div>
+      <div class="mk-go"><b>${fmt(fee)}</b><button class="btn btn-primary btn-sm" data-action="work-do" data-svc="${s.id}" ${can ? '' : 'disabled'}>Yaptır</button></div></div>`; }).join('');
+  return `<div class="modal-head"><h3>🧰 Atölye</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>
+    <div class="modal-body">
+      <div class="row">${thumbHTML(cat, item, 'sm')}<div class="grow"><div class="t">${esc(cat.name)}</div><small>Durum: <b>${COND[item.condition].label}</b> · değer ≈ ${fmt(niceRound(ref))}</small></div></div>
+      <div class="hint">Her eşya en fazla ${Game.RESTORE_MAX} kez işlem görür (kalan: <b>${left}</b>). Durum yükselince değeri de artar. Taklit bir eşya onarılsa da orijinal olmaz.</div>
+      ${svc}</div>`;
+}
+function openWorkshop(id) { UI.work = id; Modal.open(workModalInner(), { onClose: () => { UI.work = null; } }); }
+function doWork(svcId) {
+  const r = Game.restoreItem(UI.work, svcId);
+  if (!r.ok) { toast(r.msg, 'warn'); return; }
+  const t = r.step > 0 ? 'success' : r.step < 0 ? 'error' : 'info';
+  toast(r.step > 0 ? `${r.cat.name}: ${r.from} → ${r.to}` : r.step < 0 ? `${r.cat.name} zarar gördü: ${r.from} → ${r.to}` : `${r.cat.name}: değişmedi`, t, `${r.svc.ico} ${r.svc.name} · ${fmt(r.fee)}`);
+  if (r.item.condition === 'excellent' || (r.item.restored || 0) >= Game.RESTORE_MAX) { Modal.close(); } else Modal.el().innerHTML = workModalInner();
 }
 
 /* ---------- 08-sound.js ---------- */
@@ -5788,6 +6083,10 @@ const ACTIONS = {
   'buy-cabinet': () => { const r = Game.buyCabinet(); if (!r.ok) toast(r.msg, 'warn'); else toast(`${r.cabinets}. vitrin hazır: +${SHOP.SLOTS} yuva.`, 'success', '🪟 Yeni vitrin'); },
   'offer-accept': el => { const r = Game.acceptOffer(el.dataset.id); if (!r.ok) { toast(r.msg, 'warn'); renderShop(); return; } toast(`${r.cat.name} → ${r.buyer.name} · ${fmt(r.price)} · ${r.profit >= 0 ? 'kâr' : 'zarar'} ${fmt(Math.abs(r.profit))}`, r.profit >= 0 ? 'success' : 'warn', '🏛️ Koleksiyoncuya satıldı'); },
   'offer-decline': el => { Game.declineOffer(el.dataset.id); },
+  'open-map': () => openMap(),
+  'travel': el => doTravel(el.dataset.id),
+  workshop: el => openWorkshop(el.dataset.id),
+  'work-do': el => doWork(el.dataset.svc),
   'ad-open': el => openAd(el.dataset.id),
   'ad-pick': el => { if (UI.web) { UI.web.itemId = el.dataset.id; refreshAd(); } },
   'ad-send': () => adSend(),
@@ -5848,6 +6147,7 @@ function wireBus() {
     if (UI.tab === 'auction' && UI.auctionBuilt && !Auction.live()) return;   // mezat az önce bitti: çekiç animasyonu 'auction:end' ile oynatılacak
     if (UI.tab === 'inventory' || UI.tab === 'auction' || UI.tab === 'shop') renderActive();
   });
+  Bus.on('travel', () => { renderNav(); });
   Bus.on('web', d => {
     renderNav();
     if (d && d.ads) toast('İnternette yeni bir koleksiyoncu ilanı yayınlandı.', 'info', '🌐 Yeni ilan');
