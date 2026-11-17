@@ -383,10 +383,10 @@ pre.sql{margin:0;padding:14px;border-radius:12px;background:#0a0c10;border:1px s
 .vitrins{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:18px;align-items:start}
 .vitrin{position:relative;border-radius:12px 12px 4px 4px;background:linear-gradient(#5b3a24,#34200f);padding:0 9px 0;box-shadow:0 14px 28px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,220,170,.25)}
 .vtop{height:26px;display:flex;align-items:center;justify-content:center;font:700 11px/1 var(--serif,Georgia),serif;letter-spacing:.22em;text-transform:uppercase;color:#f3d9a0}
-.vglass{position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-radius:6px 6px 2px 2px;background:linear-gradient(180deg,#201522,#120a14);box-shadow:inset 0 0 0 2px #251509,inset 0 0 22px rgba(0,0,0,.7);overflow:hidden}
+.vglass{position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;border-radius:6px 6px 2px 2px;background:linear-gradient(180deg,#201522,#120a14);box-shadow:inset 0 0 0 2px #251509,inset 0 0 22px rgba(0,0,0,.7);overflow:hidden}
 .vglass::before{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;background:linear-gradient(115deg,rgba(255,255,255,.14) 0 12%,transparent 12% 30%,rgba(255,255,255,.07) 30% 38%,transparent 38%),linear-gradient(rgba(170,215,240,.06),rgba(170,215,240,.02))}
 .vglass::after{content:"";position:absolute;left:0;right:0;top:50%;height:6px;z-index:1;background:linear-gradient(#8a5a33,#4a2c14);box-shadow:0 3px 6px rgba(0,0,0,.6)}
-.vslot{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;padding:8px 6px 12px;min-height:118px;background:none;border:0;color:inherit;cursor:pointer;text-align:center;transition:transform .2s,background .2s}
+.vslot{min-width:0;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;padding:8px 6px 12px;min-height:118px;background:none;border:0;color:inherit;cursor:pointer;text-align:center;transition:transform .2s,background .2s}
 .vslot::before{content:"";position:absolute;left:12%;right:12%;top:0;height:70%;background:radial-gradient(60% 100% at 50% 0,rgba(255,236,190,.24),transparent 80%);pointer-events:none}
 .vslot:hover{transform:translateY(-2px);background:rgba(255,230,170,.06)}
 .vslot .photo{width:100%;margin:0;border-radius:4px;box-shadow:0 0 0 2px #6e4a24,0 6px 12px rgba(0,0,0,.55)}
@@ -484,6 +484,33 @@ pre.sql{margin:0;padding:14px;border-radius:12px;background:#0a0c10;border:1px s
 .mk-go b{font-size:15px;color:var(--gold2)}.mk-go small{font-size:11px;color:var(--muted)}
 .inv-tools{display:flex;gap:8px;flex-wrap:wrap}
 @media(max-width:520px){.mk{flex-wrap:wrap}.mk-go{flex-direction:row;align-items:center;width:100%;justify-content:space-between}}
+.vslot .stamp{font-size:6.5px;left:4px;bottom:4px;padding:1px 4px;letter-spacing:.6px;border-width:1px;border-radius:3px}
+@media(min-width:700px){.vslot .stamp{font-size:9px;left:8px;bottom:8px;padding:2px 6px;letter-spacing:1px;border-width:1.5px}}
+
+/* ---- İtibar ---- */
+.rep-pill{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);cursor:pointer;font:inherit;white-space:nowrap}
+.rep-pill b{font-variant-numeric:tabular-nums}.rep-pill small{color:var(--muted);font-size:11px}
+.rep-pill[data-tier="0"],.rep-pill[data-tier="1"]{border-color:rgba(255,107,107,.6)}
+.rep-pill[data-tier="3"],.rep-pill[data-tier="4"]{border-color:rgba(227,180,95,.7)}
+@media(max-width:900px){.rep-pill small{display:none}}
+.topbar-right{gap:8px}
+.rep-bar{position:relative;height:12px;border-radius:8px;background:var(--bg2);border:1px solid var(--border2);overflow:hidden;margin:6px 0}
+.rep-bar i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#ff6b6b,#e3b45f 50%,#4cc38a)}
+.rep-bar s{position:absolute;top:0;bottom:0;width:2px;background:rgba(0,0,0,.55)}
+.rep-tips{list-style:none;margin:6px 0;padding:0;display:grid;gap:6px;font-size:13px}
+.rep-delta{flex:none;min-width:38px;font-weight:800;font-variant-numeric:tabular-nums}
+
+/* ---- Dar ekran: üst çubuk sığsın ---- */
+@media(max-width:560px){
+  .topbar{gap:8px;padding-left:10px;padding-right:10px}
+  .brand>div:not(.brand-mark){display:none}
+  .topbar-right{gap:6px}
+  .rep-pill{padding:6px 9px;gap:4px}
+  .balance{padding:7px 10px;gap:5px;font-size:14px}
+  .topbar-right .icon-btn,.topbar-right .snd-btn{width:34px;height:34px;font-size:16px}
+}
+@media(max-width:400px){.brand{display:none}.topbar-right{margin-left:0;width:100%;justify-content:space-between}}
+@media(max-width:560px){.tabs-bottom .tab{font-size:10.5px;white-space:nowrap;padding-left:2px;padding-right:2px}.loc-banner{gap:8px;padding:10px}.loc-ico{font-size:24px}}
 
 </style>
 </head>
@@ -496,6 +523,7 @@ pre.sql{margin:0;padding:14px;border-radius:12px;background:#0a0c10;border:1px s
   </div>
   <nav class="tabs tabs-top" id="nav-top" role="tablist" aria-label="Bölümler"></nav>
   <div class="topbar-right">
+    <button class="rep-pill" id="rep-pill" data-action="open-rep" aria-label="İtibar"></button>
     <div class="balance-wrap" id="balance-wrap">
       <div class="balance" id="balance" title="Güncel bakiyen"><span>🪙</span><span id="balance-val">₺0</span></div>
     </div>
@@ -791,7 +819,7 @@ const Bus = {
    status alanları içerir. Böylece Supabase'e (PostgreSQL) birebir taşınabilir.
    Online sürümde yalnızca bu katmanın içi supabase.from('tablo')... ile değişir.
    ===================================================================== */
-const TABLES = ['players', 'npcs', 'catalog_items', 'items', 'market_listings', 'offers', 'auctions', 'bids', 'transactions', 'shops', 'shop_offers', 'orders', 'web_ads'];
+const TABLES = ['players', 'npcs', 'catalog_items', 'items', 'market_listings', 'offers', 'auctions', 'bids', 'transactions', 'shops', 'shop_offers', 'orders', 'web_ads', 'rep_log'];
 
 const SCHEMA_SQL = `-- Supabase / PostgreSQL şeması — oyundaki veri modelinin karşılığı
 create extension if not exists "pgcrypto";
@@ -800,6 +828,7 @@ create table players (
   id          uuid primary key default gen_random_uuid(),  -- ileride auth.users.id
   username    text not null,
   balance     numeric(14,2) not null default 5000,
+  reputation  numeric(5,1) not null default 50,   -- itibar 0–100
   location    text,                                   -- bulunduğu pazar (MARKETS id)
   created_at  timestamptz not null default now()
 );
@@ -902,7 +931,7 @@ create table bids (
 create table transactions (               -- oyuncunun para defteri
   id               uuid primary key default gen_random_uuid(),
   player_id        uuid not null references players(id),
-  type             text not null check (type in ('purchase','sale','dealer_sale','collector_sale','order_sale','web_sale','travel','repair','appraisal','museum','shop','bailout')),
+  type             text not null check (type in ('purchase','sale','dealer_sale','collector_sale','order_sale','web_sale','travel','repair','penalty','appraisal','museum','shop','bailout')),
   amount           numeric(12,2) not null,   -- (+) gelir, (−) gider
   profit           numeric(12,2),
   item_instance_id uuid references items(id),
@@ -1512,6 +1541,7 @@ const Auction = {
     const profit = price - (item.acquired_price || 0);
     this.stop();
     Game.addTx('sale', price, item.id, bidder.id, `${cat.name} mezatta satıldı (${bidder.name})`, profit);
+    Game.repSale(item, price, 'auction');
     DB.save();
     Bus.emit('inventory');
     Bus.emit('auction:end', { status: 'sold', auto: !!auto, auction: a, item, cat, bidder, price, profit });
@@ -1854,7 +1884,7 @@ Object.assign(Game, {
         DB.update('items', i.id, { appraised: true }); out.exposed.push(i);
       });
       if (!silent || t === count - 1) this.expireOffers();
-      if (Math.random() < 0.07 && DB.find('shop_offers', o => o.status === 'open').length < SHOP.MAX_OFFERS) { if (this.collectorOffer()) out.offers++; }
+      if (Math.random() < 0.07 * this.repTier().chance && DB.find('shop_offers', o => o.status === 'open').length < SHOP.MAX_OFFERS) { if (this.collectorOffer()) out.offers++; }
     }
     DB.update('shops', s.id, { last_tick_ms: Date.now(), visitors: s.visitors + out.visitors });
     if (out.revenue > 0) this.addMuseumIncome(out.revenue, out.visitors);
@@ -1900,6 +1930,7 @@ Object.assign(Game, {
     DB.update('items', item.id, { status: 'sold', owner_type: 'npc', owner_id: b.id, display_slot: null });
     const profit = o.amount - (item.acquired_price || 0);
     this.addTx('collector_sale', o.amount, item.id, b.id, `${cat.name} vitrinden ${b.name}'a satıldı`, profit);
+    this.repSale(item, o.amount, 'collector');
     Bus.emit('inventory'); Bus.emit('shop');
     return { ok: true, price: o.amount, profit, cat, buyer: b };
   },
@@ -1963,6 +1994,7 @@ Object.assign(Game, {
   },
   newOrder(opts) {
     opts = opts || {};
+    const RT = this.repTier();
     const kind = opts.kind || (Math.random() < 0.55 ? 'item' : 'category');
     const need = opts.need_genuine != null ? opts.need_genuine : Math.random() < 0.65;
     const minCond = opts.min_condition || wpick([['poor', 25], ['fair', 35], ['good', 30], ['excellent', 10]]);
@@ -1971,12 +2003,12 @@ Object.assign(Game, {
     if (kind === 'item') {
       let cat = opts.item_id && DB.get('catalog_items', opts.item_id);
       if (!cat) {
-        const inMarket = this.listings().map(l => this.catalogOf(DB.get('items', l.item_instance_id))).filter(c => c && c.rarity !== 'legendary');
+        const inMarket = this.listings().map(l => this.catalogOf(DB.get('items', l.item_instance_id))).filter(c => c && c.rarity !== 'legendary' && c.base_value <= RT.maxValue);
         cat = Math.random() < 0.65 && inMarket.length ? pick(inMarket)
-          : wpick(DB.find('catalog_items', c => c.rarity !== 'legendary').map(c => [c, { common: 3, uncommon: 3, rare: 2, epic: 0.6 }[c.rarity]]));
+          : wpick(DB.find('catalog_items', c => c.rarity !== 'legendary' && c.base_value <= RT.maxValue).map(c => [c, { common: 3, uncommon: 3, rare: 2, epic: 0.6 }[c.rarity]]));
       }
       row.item_id = cat.id;
-      row.budget = niceRound(cat.base_value * COND[minCond].mult * rand(1.35, 1.75) * laxity);
+      row.budget = niceRound(cat.base_value * COND[minCond].mult * rand(1.35, 1.75) * laxity * RT.budget);
       row.line = pick([`Torunuma hediye edeceğim bir “${cat.name}” arıyorum.`, `Salonuma çok yakışır: “${cat.name}”. Bulabilir misin?`, `Bana bir “${cat.name}” lazım, bütçem belli.`]);
     } else {
       const cat = opts.category || pick(CATEGORIES)[0];
@@ -1984,9 +2016,10 @@ Object.assign(Game, {
       const lo = RANKS.indexOf(minR);
       let pool = CATALOG.filter(c => c[2] === cat && RANKS.indexOf(c[4]) >= lo && RANKS.indexOf(c[4]) <= Math.min(lo + 1, 2));
       if (!pool.length) pool = CATALOG.filter(c => c[2] === cat && RANKS.indexOf(c[4]) <= 2);
+      if (pool.some(c => c[5] <= RT.maxValue)) pool = pool.filter(c => c[5] <= RT.maxValue); else pool = [CATALOG.filter(c => c[2] === cat).sort((a, b) => a[5] - b[5])[0]];
       const avg = pool.reduce((s, c) => s + c[5], 0) / pool.length;
       row.category = cat; row.min_rarity = minR;
-      row.budget = niceRound(avg * COND[minCond].mult * rand(1.15, 1.4) * laxity);
+      row.budget = niceRound(avg * COND[minCond].mult * rand(1.15, 1.4) * laxity * RT.budget);
       row.line = pick([`${cat} alanında ${RARITY[minR].label.toLowerCase()} bir parça arıyorum.`, `Koleksiyonuma bir ${cat} eşyası lazım.`, `${cat} kategorisinden bir şey bul bana, yeter ki ${RARITY[minR].label.toLowerCase()} olsun.`]);
     }
     return DB.insert('orders', row);
@@ -2008,6 +2041,7 @@ Object.assign(Game, {
     DB.update('items', item.id, { status: 'sold', owner_type: 'npc', owner_id: cust.id, display_slot: null });
     const profit = pay - (item.acquired_price || 0);
     this.addTx('order_sale', pay, item.id, cust.id, `${cat.name} → ${cust.name} (sipariş)`, profit);
+    this.repSale(item, pay, 'order');
     Bus.emit('inventory'); Bus.emit('shop');
     return { ok: true, pay, profit, cat, cust, bonus: pay - o.budget };
   },
@@ -2089,11 +2123,13 @@ Object.assign(Game, {
     if (kind === 'item') {
       let cat = opts.item_id && DB.get('catalog_items', opts.item_id);
       if (!cat) {
-        const pool = DB.find('catalog_items', c => c.base_value >= WEB.MIN_VALUE);
+        const RT0 = this.repTier();
+        let pool = DB.find('catalog_items', c => c.base_value >= WEB.MIN_VALUE && c.base_value <= RT0.maxValue);
+        if (!pool.length) pool = DB.find('catalog_items', c => c.base_value >= WEB.MIN_VALUE);
         cat = wpick(pool.map(c => [c, (col.spec.includes(c.category) ? 3 : 1) * (c.rarity === 'legendary' ? 0.7 : 1)]));
       }
       row.item_id = cat.id;
-      row.max_price = niceRound(cat.base_value * cm * rand(1.3, 1.85) * wealth);
+      row.max_price = niceRound(cat.base_value * cm * rand(1.3, 1.85) * wealth * this.repTier().budget);
       row.line = pick([`Koleksiyonum için “${cat.name}” arıyorum. Doğru parçaya iyi öderim.`, `ARANIYOR: ${cat.name}. Ciddi satıcılar yazsın.`, `${cat.name} için yüksek bütçe ayırdım, pazarlığa açığım.`]);
     } else {
       const cat = opts.category || (col.spec.length ? pick(col.spec) : pick(CATEGORIES)[0]);
@@ -2103,7 +2139,7 @@ Object.assign(Game, {
       if (!pool.length) pool = CATALOG.filter(c => c[2] === cat);
       const avg = pool.reduce((s, c) => s + c[5], 0) / pool.length;
       row.category = cat; row.min_rarity = minR;
-      row.max_price = niceRound(avg * cm * rand(1.0, 1.4) * wealth);
+      row.max_price = niceRound(avg * cm * rand(1.0, 1.4) * wealth * this.repTier().budget);
       row.line = pick([`${cat} alanında ${RARITY[minR].label.toLowerCase()} ve üzeri parçalar alıyorum.`, `Koleksiyonuma ${RARITY[minR].label.toLowerCase()}+ bir ${cat} eseri ekleyeceğim.`]);
     }
     row.ref_price = niceRound(row.max_price * (style === 'cömert' ? 0.78 : style === 'cimri' ? 0.62 : 0.7));
@@ -2133,6 +2169,7 @@ Object.assign(Game, {
     DB.update('items', item.id, { status: 'sold', owner_type: 'npc', owner_id: col.id, display_slot: null });
     const profit = price - (item.acquired_price || 0);
     this.addTx('web_sale', price, item.id, col.id, `${cat.name} → ${col.name} (${col.city}, ilan)`, profit);
+    this.repSale(item, price, 'web');
     Bus.emit('inventory'); Bus.emit('shop'); Bus.emit('web');
     return { ok: true, result: 'accepted', price, profit, cat, col, line: pick(WEB_LINES.accept) };
   },
@@ -2189,6 +2226,72 @@ Object.assign(Game, {
   Game.shopCatchUp = function () {
     this.expireAds(); this.adFill(3);
     return catchUp.call(this);
+  };
+})();
+
+/* ---------- 04-zrep.js ---------- */
+/* =====================================================================
+   BÖLÜM 4d — İTİBAR (güven) SİSTEMİ
+   players.reputation 0–100 (başlangıç 50). Her değişiklik rep_log tablosuna NEDENİYLE yazılır.
+   Düşürenler: taklit ürün satmak (bilerek satmak daha ağır + tazminat), vitrinde taklit yakalanması.
+   Yükseltenler: orijinal ürünü bilinen değerinin altında satmak (müşteri memnuniyeti), ekspertizli/belgeli satış.
+   Etkisi: itibar düşünce pahalı ürün siparişleri/ilanları ve ziyaretçi azalır; yükselince seçkin müşteri gelir.
+   ===================================================================== */
+const REP = { START: 50, TIERS: [
+  { min: 0,  label: 'Kötü şöhretli',      ico: '🚫', chance: 0.35, maxValue: 1500,     budget: 0.85, visit: 0.6,  note: 'Kimse sana güvenmiyor. Sadece ucuz eşyalar için müşteri geliyor; koleksiyoncular ilan vermiyor.' },
+  { min: 20, label: 'Şüpheli',            ico: '⚠️', chance: 0.65, maxValue: 6000,     budget: 0.92, visit: 0.8,  note: 'Çevrede adın kötüye çıkmış. Pahalı parçalar için müşteri bulmak zor.' },
+  { min: 40, label: 'Mahalle esnafı',     ico: '🏪', chance: 1.0,  maxValue: 25000,    budget: 1.0,  visit: 1.0,  note: 'Sıradan bir antikacı olarak tanınıyorsun. Orta fiyatlı parçalara talep var.' },
+  { min: 60, label: 'Güvenilir antikacı', ico: '🤝', chance: 1.2,  maxValue: 90000,    budget: 1.1,  visit: 1.15, note: 'Adın güvenle anılıyor. Daha çok sipariş, daha yüksek bütçeler.' },
+  { min: 80, label: 'Ünlü antikacı',      ico: '🏆', chance: 1.45, maxValue: Infinity, budget: 1.25, visit: 1.3,  note: 'Şöhretin ülkeye yayıldı. En seçkin koleksiyoncular ve en yüksek bütçeler seni arıyor.' }
+] };
+
+Object.assign(Game, {
+  rep() { const p = this.player(); return p && p.reputation != null ? p.reputation : REP.START; },
+  repTier(r) { r = r == null ? this.rep() : r; let t = REP.TIERS[0]; REP.TIERS.forEach(x => { if (r >= x.min) t = x; }); return t; },
+  repLog(n) { return DB.find('rep_log').sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : b.seq - a.seq)).slice(0, n || 12); },
+  repChange(delta, reason, item) {
+    const p = this.player(), before = this.rep(), after = clamp(Math.round((before + delta) * 10) / 10, 0, 100);
+    if (after === before) return null;
+    reason = reason.charAt(0).toLocaleUpperCase('tr') + reason.slice(1);
+    const t0 = this.repTier(before), t1 = this.repTier(after);
+    DB.update('players', p.id, { reputation: after });
+    DB.insert('rep_log', { player_id: p.id, delta: after - before, reason, item_name: item || null, rep_after: after, day: DB.meta.day, seq: Date.now() });
+    DB.find('rep_log').sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(40).forEach(r => DB.remove('rep_log', r.id));
+    const out = { delta: after - before, reason, after, tierUp: t1.min > t0.min ? t1 : null, tierDown: t1.min < t0.min ? t1 : null };
+    Bus.emit('rep', out);
+    return out;
+  },
+  // bir eşya müşteriye satıldığında çağrılır (mezat, vitrin teklifi, sipariş, ilan)
+  repSale(item, price, channel) {
+    const cat = this.catalogOf(item), n = cat.name, where = { auction: 'mezatta', collector: 'vitrinden', order: 'siparişle', web: 'ilanla' }[channel] || '';
+    if (item.authenticity === 'fake') {
+      const knew = !!item.appraised;
+      if (!knew && channel === 'auction' && Math.random() > 0.6) return { undetected: true };   // mezat alıcısı fark etmedi
+      const comp = Math.min(Math.floor(this.balance()), Math.round(price * (knew ? 0.30 : 0.15)));
+      if (comp > 0) this.addTx('penalty', -comp, item.id, null, `${n} · taklit ürün tazminatı`);
+      return this.repChange(knew ? -8 : -4, knew
+        ? `Taklit olduğunu bildiğin “${n}” ürününü ${where} sattın. Müşteri mağdur oldu${comp ? ` (tazminat ${fmt(comp)})` : ''}.`
+        : `${where} sattığın “${n}” taklit çıktı; alıcı fark etti${comp ? ` (tazminat ${fmt(comp)})` : ''}. Ekspertiz yaptırsaydın bunu önlerdin.`, n);
+    }
+    const ratio = price / Math.max(1, item.true_value), parts = []; let gain = 0;
+    if (ratio <= 0.92) { const g = clamp(Math.round((1 - ratio) * 10), 1, 3); gain += g; parts.push(`değerinin %${Math.round(ratio * 100)}’ine sattın, müşteri memnun kaldı`); }
+    if (item.appraised && ratio <= 1.1) { gain += 1; parts.push('belgeli (ekspertizli) orijinal ürün sattın'); }
+    if (!gain) return null;
+    return this.repChange(Math.min(gain, 4), `“${n}” ${where} satıldı: ${parts.join(' ve ')}.`, n);
+  }
+});
+
+// itibar → müşteri ilgisi: ziyaretçi, siparişler, koleksiyoncu ilanları, vitrin teklifleri
+(function hookRep() {
+  const visitors = Game.visitorsPerTick, orderRoll = Game.orderRoll, adRoll = Game.adRoll, adFill = Game.adFill, tick = Game.shopTick;
+  Game.visitorsPerTick = function (pts) { return visitors.call(this, pts) * this.repTier().visit; };
+  Game.orderRoll = function () { const t = this.repTier(); if (Math.random() > t.chance) { this.expireOrders(); return null; } return orderRoll.call(this); };
+  Game.adRoll = function () { if (this.repTier().maxValue < WEB.MIN_VALUE) { this.expireAds(); return null; } return Math.random() <= this.repTier().chance ? adRoll.call(this) : (this.expireAds(), null); };
+  Game.adFill = function (n) { if (this.repTier().maxValue < WEB.MIN_VALUE) return; return adFill.call(this, n); };
+  Game.shopTick = function (count, silent) {
+    const out = tick.call(this, count, silent);
+    (out.exposed || []).forEach(i => this.repChange(-2, `Vitrinindeki “${this.catalogOf(i).name}” taklit çıktı; bir uzman ziyaretçi fark etti.`, this.catalogOf(i).name));
+    return out;
   };
 })();
 
@@ -2289,6 +2392,7 @@ function renderNav() {
   }).join('');
   $('#nav-top').innerHTML = html;
   $('#nav-bottom').innerHTML = html;
+  if (typeof renderRep === 'function') renderRep();
 }
 
 function switchTab(id) {
@@ -2673,7 +2777,7 @@ function hallFocus(hall) {
 }
 
 /* ------------------------------ DEFTER ------------------------------ */
-const TX_ICON = { purchase: '🛒', sale: '🔨', dealer_sale: '💱', collector_sale: '🏛️', order_sale: '🧾', web_sale: '🌐', travel: '🚌', repair: '🧰', museum: '🎟️', shop: '🪟', appraisal: '🔍', bailout: '🆘' };
+const TX_ICON = { purchase: '🛒', sale: '🔨', dealer_sale: '💱', collector_sale: '🏛️', order_sale: '🧾', web_sale: '🌐', travel: '🚌', repair: '🧰', penalty: '⚖️', museum: '🎟️', shop: '🪟', appraisal: '🔍', bailout: '🆘' };
 function renderLedger() {
   const root = $('#view-ledger');
   if (!root) return;
@@ -3350,6 +3454,49 @@ function doWork(svcId) {
   const t = r.step > 0 ? 'success' : r.step < 0 ? 'error' : 'info';
   toast(r.step > 0 ? `${r.cat.name}: ${r.from} → ${r.to}` : r.step < 0 ? `${r.cat.name} zarar gördü: ${r.from} → ${r.to}` : `${r.cat.name}: değişmedi`, t, `${r.svc.ico} ${r.svc.name} · ${fmt(r.fee)}`);
   if (r.item.condition === 'excellent' || (r.item.restored || 0) >= Game.RESTORE_MAX) { Modal.close(); } else Modal.el().innerHTML = workModalInner();
+}
+
+/* ---------- 07f-ui-rep.js ---------- */
+/* =====================================================================
+   BÖLÜM 7f — İTİBAR GÖSTERGESİ (üst çubuk) VE İTİBAR PENCERESİ
+   ===================================================================== */
+function renderRep() {
+  const el = $('#rep-pill'); if (!el) return;
+  const r = Game.rep(), t = Game.repTier();
+  el.innerHTML = `<span>${t.ico}</span><b>${Math.round(r)}</b><small>${t.label}</small>`;
+  el.title = `İtibar: ${Math.round(r)}/100 · ${t.label}`;
+  el.dataset.tier = REP.TIERS.indexOf(t);
+}
+function repLogRow(e) {
+  const up = e.delta > 0;
+  return `<div class="row"><span class="rep-delta ${up ? 'pos' : 'neg'}">${up ? '+' : '−'}${Math.abs(e.delta)}</span>
+    <div class="grow"><div class="t">${esc(e.reason)}</div><small>Gün ${e.day} · itibar ${Math.round(e.rep_after)}</small></div></div>`;
+}
+function openRep() {
+  const r = Game.rep(), t = Game.repTier(), idx = REP.TIERS.indexOf(t), next = REP.TIERS[idx + 1], log = Game.repLog(12);
+  const money = v => v === Infinity ? 'sınırsız' : fmt(v);
+  Modal.open(`<div class="modal-head"><h3>${t.ico} İtibar · ${t.label}</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>
+    <div class="modal-body">
+      <div class="rep-bar"><i style="width:${r}%"></i>${REP.TIERS.slice(1).map(x => `<s style="left:${x.min}%"></s>`).join('')}</div>
+      <div class="meter-row"><span><b>${Math.round(r)}</b> / 100</span><span>${next ? `Sonraki: ${next.ico} ${next.label} (${next.min})` : 'En üst seviye 🏆'}</span></div>
+      <p class="hint">${esc(t.note)}</p>
+      <div class="kv">
+        <div><small>Sipariş sıklığı</small><b>×${t.chance}</b></div>
+        <div><small>İstenen en pahalı parça</small><b>${money(t.maxValue)}</b></div>
+        <div><small>Müşteri bütçesi</small><b>×${t.budget}</b></div>
+        <div><small>Dükkân ziyaretçisi</small><b>×${t.visit}</b></div>
+      </div>
+      <h4 class="sec-s">İtibar nasıl değişir?</h4>
+      <ul class="rep-tips">
+        <li class="pos">✅ Orijinal eşyayı bilinen değerinin altında satmak: <b>+1 ile +3</b> (müşteri memnuniyeti)</li>
+        <li class="pos">🔍 Ekspertizli, belgeli ürün satmak: <b>+1</b></li>
+        <li class="neg">⚠️ Bilmeden taklit ürün satmak: <b>−4</b> ve %15 tazminat</li>
+        <li class="neg">🚫 Taklit olduğunu bilerek satmak: <b>−8</b> ve %30 tazminat</li>
+        <li class="neg">🕵️ Vitrinde taklit yakalanması: <b>−2</b></li>
+      </ul>
+      <h4 class="sec-s">Son olaylar</h4>
+      ${log.length ? log.map(repLogRow).join('') : '<div class="hint">Henüz itibarını etkileyen bir olay olmadı. Dürüst sat, itibarın yükselsin.</div>'}
+    </div>`);
 }
 
 /* ---------- 08-sound.js ---------- */
@@ -6083,6 +6230,7 @@ const ACTIONS = {
   'buy-cabinet': () => { const r = Game.buyCabinet(); if (!r.ok) toast(r.msg, 'warn'); else toast(`${r.cabinets}. vitrin hazır: +${SHOP.SLOTS} yuva.`, 'success', '🪟 Yeni vitrin'); },
   'offer-accept': el => { const r = Game.acceptOffer(el.dataset.id); if (!r.ok) { toast(r.msg, 'warn'); renderShop(); return; } toast(`${r.cat.name} → ${r.buyer.name} · ${fmt(r.price)} · ${r.profit >= 0 ? 'kâr' : 'zarar'} ${fmt(Math.abs(r.profit))}`, r.profit >= 0 ? 'success' : 'warn', '🏛️ Koleksiyoncuya satıldı'); },
   'offer-decline': el => { Game.declineOffer(el.dataset.id); },
+  'open-rep': () => openRep(),
   'open-map': () => openMap(),
   'travel': el => doTravel(el.dataset.id),
   workshop: el => openWorkshop(el.dataset.id),
@@ -6148,6 +6296,12 @@ function wireBus() {
     if (UI.tab === 'inventory' || UI.tab === 'auction' || UI.tab === 'shop') renderActive();
   });
   Bus.on('travel', () => { renderNav(); });
+  Bus.on('rep', d => {
+    renderRep();
+    toast(d.reason, d.delta > 0 ? 'success' : 'error', `⭐ İtibar ${d.delta > 0 ? '+' : '−'}${Math.abs(d.delta)}`);
+    if (d.tierUp) toast(`Yeni unvanın: ${d.tierUp.ico} ${d.tierUp.label}. ${d.tierUp.note}`, 'gold', '🏅 İtibar yükseldi');
+    if (d.tierDown) toast(`Unvanın düştü: ${d.tierDown.ico} ${d.tierDown.label}. ${d.tierDown.note}`, 'warn', '📉 İtibar düştü');
+  });
   Bus.on('web', d => {
     renderNav();
     if (d && d.ads) toast('İnternette yeni bir koleksiyoncu ilanı yayınlandı.', 'info', '🌐 Yeni ilan');
