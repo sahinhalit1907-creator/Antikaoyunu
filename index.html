@@ -541,6 +541,30 @@ pre.sql{margin:0;padding:14px;border-radius:12px;background:#0a0c10;border:1px s
 .hm-auto{display:flex;gap:6px;align-items:center;justify-content:center}.hm-auto input{width:140px}
 @media(max-width:560px){.tab{font-size:.62rem;padding-left:2px;padding-right:2px}.tab-ico{font-size:1.05rem}}
 
+/* ---- Galeri salonu sahnesi ---- */
+.gx-hall{position:relative;border-radius:14px;overflow:hidden;padding:34px 12px 0;border:1px solid #3a2f1c;
+  background:radial-gradient(120% 90% at 50% 0,#4a3a24 0,#2a2118 45%,#17120d 100%)}
+.gx-hall::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,.025) 0 2px,transparent 2px 64px);pointer-events:none}
+.gx-l2,.gx-l3{background:radial-gradient(120% 90% at 50% 0,#3a3f55 0,#232638 45%,#12131d 100%);border-color:#4b5078}
+.gx-l4{background:radial-gradient(120% 90% at 50% 0,#5a3d52 0,#2e1f30 45%,#150d17 100%);border-color:#9a6a8a}
+.gx-sign{position:absolute;top:8px;left:0;right:0;text-align:center;font:700 .7rem/1 var(--serif,Georgia),serif;letter-spacing:.3em;color:#e6c46b;opacity:.85}
+.gx-row{position:relative;display:flex;flex-wrap:wrap;gap:22px 14px;justify-content:center;align-items:flex-end;padding-bottom:30px}
+.gx{position:relative;margin:0;width:150px;display:flex;flex-direction:column;align-items:center}
+.gx-wide{width:250px}
+.gx-beam{position:absolute;top:-34px;left:50%;width:120%;height:130%;transform:translateX(-50%);background:conic-gradient(from 180deg at 50% 0,transparent 160deg,rgba(255,236,180,.20) 180deg,transparent 200deg);pointer-events:none;animation:gxb 5s ease-in-out infinite alternate;animation-delay:var(--d)}
+@keyframes gxb{from{opacity:.55}to{opacity:1}}
+.gx-frame{position:relative;width:100%;aspect-ratio:4/3;padding:7px;background:linear-gradient(135deg,#f0d78a,#a77a25 45%,#e6c46b 70%,#7a5516);border-radius:5px;box-shadow:0 8px 18px rgba(0,0,0,.6),inset 0 0 0 2px rgba(0,0,0,.35)}
+.gx-frame img{width:100%;height:100%;object-fit:cover;border-radius:2px;display:block;box-shadow:inset 0 0 12px #000}
+.gx.r-legendary .gx-frame{box-shadow:0 8px 18px rgba(0,0,0,.6),0 0 22px rgba(255,214,120,.55)}
+.gx-base{width:72%;height:12px;margin-top:6px;border-radius:3px 3px 0 0;background:linear-gradient(180deg,#8a8a95,#4a4a55);box-shadow:0 6px 10px rgba(0,0,0,.6)}
+.gx-plaque{margin-top:4px;width:100%;text-align:center;padding:5px 6px;border-radius:5px;background:linear-gradient(180deg,#2a2a30,#17171b);border:1px solid #6b5a2e;display:flex;flex-direction:column;gap:1px;align-items:center}
+.gx-plaque b{font-size:.74rem;color:#f3e2b0;line-height:1.15}.gx-plaque span{font-size:.64rem;color:#b9b2a0}.gx-plaque em{font-style:normal;font-weight:700;font-size:.75rem;color:#e6c46b}
+.gx-plaque .btn{margin-top:3px;padding:1px 8px;font-size:.65rem}
+.gx-empty{height:120px;justify-content:center;border:1px dashed #6b5a2e;border-radius:8px;color:#8d8160;background:rgba(0,0,0,.25)}.gx-empty span{font-size:1.4rem}
+.gx-lock{opacity:.45}
+.gx-floor{position:absolute;left:0;right:0;bottom:0;height:26px;background:linear-gradient(180deg,#1a130c,#3b2a18);border-top:2px solid #6b5a2e;box-shadow:0 -6px 14px rgba(0,0,0,.5)}
+@media(max-width:560px){.gx{width:42%}.gx-wide{width:92%}}
+
 </style>
 </head>
 <body>
@@ -3994,18 +4018,26 @@ function lotCard(l) {
 }
 function galleryHTML() {
   const lv = Game.galleryLevel(), L = GAL.LEVELS[lv], col = Game.collection(), nxt = lv < GAL.LEVELS.length - 1 ? GAL.LEVELS[lv + 1] : null;
+  const wide = new Set(['Klasik Araç']);
   const slots = [];
   for (let n = 0; n < Math.max(L.slots, 2); n++) {
     const it = n < L.slots ? Game.galleryAt(n) : null;
-    if (it) { const c = Game.catalogOf(it); slots.push(`<div class="gslot full r-${c.rarity}">${photoHTML(c)}<b>${esc(c.name)}</b><small>${fmt(Game.valueFor(it))}</small><button class="btn btn-ghost btn-sm" data-action="gal-remove" data-id="${it.id}">İndir</button></div>`); }
-    else slots.push(`<div class="gslot ${n < L.slots ? 'empty' : 'locked'}">${n < L.slots ? '＋<small>boş yer</small>' : '🔒'}</div>`);
+    if (it) {
+      const c = Game.catalogOf(it), car = wide.has(c.category), ex = it.appraised && it.authenticity === 'exceptional';
+      slots.push(`<figure class="gx ${car ? 'gx-wide' : ''} r-${c.rarity}" style="--d:${(n % 5) * 0.4}s">
+        <span class="gx-beam"></span>
+        <div class="gx-frame"><img src="${artURL(c)}" alt="${esc(c.name)}" draggable="false"></div>
+        <div class="gx-base"></div>
+        <figcaption class="gx-plaque"><b>${esc(c.name)}</b><span>${esc(c.era || '')}${ex ? ' · 💎 Müzelik' : ''}</span><em>${fmt(Game.valueFor(it))}</em>
+          <button class="btn btn-ghost btn-sm" data-action="gal-remove" data-id="${it.id}">İndir</button></figcaption></figure>`);
+    } else slots.push(`<div class="gx gx-empty ${n < L.slots ? '' : 'gx-lock'}"><span>${n < L.slots ? '＋' : '🔒'}</span><small>${n < L.slots ? 'Boş yer' : 'Kilitli'}</small></div>`);
   }
   const idle = Game.inventory().filter(i => i.status === 'inventory' && Game.isPremium(i));
   return `<section class="hpanel"><h3>${L.ico} ${L.name} <small>${L.slots ? `${col.items.length}/${L.slots} yer dolu` : 'Henüz galerin yok'}</small></h3>
-    <div class="gal-grid">${slots.join('')}</div>
-    ${idle.length ? `<div class="gal-idle"><small>Envanterindeki koleksiyonluk parçalar:</small>${idle.map(i => `<button class="btn btn-ghost btn-sm" data-action="gal-place" data-id="${i.id}">🖼️ ${esc(Game.catalogOf(i).name)}</button>`).join('')}</div>` : ''}
+    <div class="gx-hall gx-l${lv}"><div class="gx-sign">${L.ico} ${esc(L.name.toUpperCase())}</div><div class="gx-row">${slots.join('')}</div><div class="gx-floor"></div></div>
+    ${idle.length ? `<div class="gal-idle"><small>Sergilenmeyi bekleyenler:</small>${idle.map(i => `<button class="btn btn-ghost btn-sm" data-action="gal-place" data-id="${i.id}">🖼️ ${esc(Game.catalogOf(i).name)}</button>`).join('')}</div>` : ''}
     ${nxt ? `<button class="btn btn-gold" data-action="gal-buy">${nxt.ico} ${nxt.name} aç — ${fmt(nxt.cost)} (${nxt.slots} yer)</button>` : '<small>👑 En üst seviyedesin.</small>'}
-    <small class="muted">Galeri kâr için değil, hobi için: milyonluk parçalar yalnızca burada sergilenir. İstersen büyük bir teklif gelirse satabilirsin.</small></section>`;
+    <small class="muted">Galeri kâr için değil, hobi için: milyonluk parçalar yalnızca burada sergilenir. Büyük bir teklif gelirse satabilirsin.</small></section>`;
 }
 function scoreHTML() {
   const c = Game.collection();
