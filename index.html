@@ -548,22 +548,42 @@ pre.sql{margin:0;padding:14px;border-radius:12px;background:#0a0c10;border:1px s
 .gx-l2,.gx-l3{background:radial-gradient(120% 90% at 50% 0,#3a3f55 0,#232638 45%,#12131d 100%);border-color:#4b5078}
 .gx-l4{background:radial-gradient(120% 90% at 50% 0,#5a3d52 0,#2e1f30 45%,#150d17 100%);border-color:#9a6a8a}
 .gx-sign{position:absolute;top:8px;left:0;right:0;text-align:center;font:700 .7rem/1 var(--serif,Georgia),serif;letter-spacing:.3em;color:#e6c46b;opacity:.85}
-.gx-row{position:relative;display:flex;flex-wrap:wrap;gap:22px 14px;justify-content:center;align-items:flex-end;padding-bottom:30px}
-.gx{position:relative;margin:0;width:150px;display:flex;flex-direction:column;align-items:center}
-.gx-wide{width:250px}
+.gx-row{position:relative;display:grid;grid-template-columns:repeat(auto-fit,150px);gap:22px 14px;justify-content:center;align-items:stretch;padding-bottom:30px}
+.gx{position:relative;margin:0;width:100%;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start}
+.gx-wide{grid-column:span 2}.gx-wide .gx-frame{width:100%}
 .gx-beam{position:absolute;top:-34px;left:50%;width:120%;height:130%;transform:translateX(-50%);background:conic-gradient(from 180deg at 50% 0,transparent 160deg,rgba(255,236,180,.20) 180deg,transparent 200deg);pointer-events:none;animation:gxb 5s ease-in-out infinite alternate;animation-delay:var(--d)}
 @keyframes gxb{from{opacity:.55}to{opacity:1}}
-.gx-frame{position:relative;width:100%;aspect-ratio:4/3;padding:7px;background:linear-gradient(135deg,#f0d78a,#a77a25 45%,#e6c46b 70%,#7a5516);border-radius:5px;box-shadow:0 8px 18px rgba(0,0,0,.6),inset 0 0 0 2px rgba(0,0,0,.35)}
-.gx-frame img{width:100%;height:100%;object-fit:cover;border-radius:2px;display:block;box-shadow:inset 0 0 12px #000}
+.gx-frame{position:relative;width:100%;aspect-ratio:4/3;flex:none;box-sizing:border-box;padding:7px;background:linear-gradient(135deg,#f0d78a,#a77a25 45%,#e6c46b 70%,#7a5516);border-radius:5px;box-shadow:0 8px 18px rgba(0,0,0,.6),inset 0 0 0 2px rgba(0,0,0,.35)}
+.gx-frame img{width:100%;height:100%;object-fit:cover;object-position:center;background:#000;border-radius:2px;display:block;box-shadow:inset 0 0 12px #000}
 .gx.r-legendary .gx-frame{box-shadow:0 8px 18px rgba(0,0,0,.6),0 0 22px rgba(255,214,120,.55)}
 .gx-base{width:72%;height:12px;margin-top:6px;border-radius:3px 3px 0 0;background:linear-gradient(180deg,#8a8a95,#4a4a55);box-shadow:0 6px 10px rgba(0,0,0,.6)}
-.gx-plaque{margin-top:4px;width:100%;text-align:center;padding:5px 6px;border-radius:5px;background:linear-gradient(180deg,#2a2a30,#17171b);border:1px solid #6b5a2e;display:flex;flex-direction:column;gap:1px;align-items:center}
+.gx-plaque{margin-top:4px;width:100%;box-sizing:border-box;flex:1 1 auto;justify-content:flex-start;text-align:center;padding:5px 6px;border-radius:5px;background:linear-gradient(180deg,#2a2a30,#17171b);border:1px solid #6b5a2e;display:flex;flex-direction:column;gap:1px;align-items:center}
 .gx-plaque b{font-size:.74rem;color:#f3e2b0;line-height:1.15}.gx-plaque span{font-size:.64rem;color:#b9b2a0}.gx-plaque em{font-style:normal;font-weight:700;font-size:.75rem;color:#e6c46b}
-.gx-plaque .btn{margin-top:3px;padding:1px 8px;font-size:.65rem}
-.gx-empty{height:120px;justify-content:center;border:1px dashed #6b5a2e;border-radius:8px;color:#8d8160;background:rgba(0,0,0,.25)}.gx-empty span{font-size:1.4rem}
+.gx-plaque .btn{margin-top:auto;padding:1px 8px;font-size:.65rem}.gx-plaque em{margin-top:2px;margin-bottom:4px}
+.gx-empty{min-height:120px;justify-content:center;border:1px dashed #6b5a2e;border-radius:8px;color:#8d8160;background:rgba(0,0,0,.25)}.gx-empty span{font-size:1.4rem}
 .gx-lock{opacity:.45}
 .gx-floor{position:absolute;left:0;right:0;bottom:0;height:26px;background:linear-gradient(180deg,#1a130c,#3b2a18);border-top:2px solid #6b5a2e;box-shadow:0 -6px 14px rgba(0,0,0,.5)}
-@media(max-width:560px){.gx{width:42%}.gx-wide{width:92%}}
+
+/* ---- Eser büyütme + parıltı ---- */
+.gx-frame{cursor:zoom-in;overflow:hidden}
+.gx-frame img{pointer-events:none}
+.gx-shine{position:absolute;inset:0;pointer-events:none;overflow:hidden;border-radius:5px}
+.gx-shine::before{content:"";position:absolute;top:-20%;bottom:-20%;left:-60%;width:38%;background:linear-gradient(100deg,transparent,rgba(255,244,205,.55),transparent);transform:skewX(-18deg);animation:gxshine 4.2s ease-in-out infinite;animation-delay:var(--d,0s)}
+@keyframes gxshine{0%,55%{left:-60%}100%{left:130%}}
+.gx-spark{position:absolute;width:12px;height:12px;pointer-events:none;opacity:0;background:radial-gradient(circle,#fff 0,rgba(255,236,170,.9) 25%,transparent 65%);clip-path:polygon(50% 0,60% 40%,100% 50%,60% 60%,50% 100%,40% 60%,0 50%,40% 40%);animation:gxspark 3s ease-in-out infinite}
+.gx-spark.s1{top:14%;left:18%;animation-delay:.3s}.gx-spark.s2{top:62%;left:78%;animation-delay:1.3s;width:9px;height:9px}.gx-spark.s3{top:30%;left:70%;animation-delay:2.1s}.gx-spark.s4{top:72%;left:16%;animation-delay:.9s}
+@keyframes gxspark{0%,100%{opacity:0;transform:scale(.3) rotate(0)}45%{opacity:1;transform:scale(1.1) rotate(45deg)}70%{opacity:0;transform:scale(.4) rotate(90deg)}}
+.gx-zoomhint{position:absolute;right:6px;bottom:5px;font-size:.7rem;opacity:.75;background:rgba(0,0,0,.45);border-radius:10px;padding:1px 5px;pointer-events:none}
+.gx-zoom{max-width:720px}
+.gz-body{display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center}
+.gz-frame{position:relative;width:100%;box-sizing:border-box;padding:12px;border-radius:8px;overflow:hidden;background:linear-gradient(135deg,#f0d78a,#a77a25 45%,#e6c46b 70%,#7a5516);box-shadow:0 14px 34px rgba(0,0,0,.65),0 0 30px rgba(255,214,120,.35)}
+.gz-frame img{display:block;width:100%;height:auto;max-height:62vh;object-fit:contain;background:#000;border-radius:3px;box-shadow:inset 0 0 18px #000;margin:0 auto}
+.gz-frame .gx-shine::before{width:30%;animation-duration:3.4s}
+.gz-frame .gx-spark{width:18px;height:18px}
+.gz-cap{display:flex;flex-direction:column;gap:3px;align-items:center}
+.gz-cap b{font-size:1.05rem;color:#f3e2b0}.gz-cap span{font-size:.8rem;color:#b9b2a0}.gz-cap em{font-style:normal;font-weight:700;color:#e6c46b}.gz-cap p{margin:6px 0 0;font-size:.82rem;color:#cfc8b4}
+@media(prefers-reduced-motion:reduce){.gx-shine::before,.gx-spark{animation:none}}
+@media(max-width:560px){.gx-hall{padding-left:8px;padding-right:8px}.gx-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 10px}.gx-wide{grid-column:1 / -1}}
 
 </style>
 </head>
@@ -4064,7 +4084,7 @@ function galleryHTML() {
       const c = Game.catalogOf(it), car = wide.has(c.category), ex = it.appraised && it.authenticity === 'exceptional';
       slots.push(`<figure class="gx ${car ? 'gx-wide' : ''} r-${c.rarity}" style="--d:${(n % 5) * 0.4}s">
         <span class="gx-beam"></span>
-        <div class="gx-frame"><img src="${artURL(c)}" alt="${esc(c.name)}" draggable="false"></div>
+        <div class="gx-frame" data-action="gal-view" data-id="${it.id}" role="button" tabindex="0" aria-label="${esc(c.name)} - büyüt"><img src="${artURL(c)}" alt="${esc(c.name)}" draggable="false"><i class="gx-shine"></i><i class="gx-spark s1"></i><i class="gx-spark s2"></i><i class="gx-spark s3"></i><span class="gx-zoomhint">🔍</span></div>
         <div class="gx-base"></div>
         <figcaption class="gx-plaque"><b>${esc(c.name)}</b><span>${esc(c.era || '')}${ex ? ' · 💎 Müzelik' : ''}</span><em>${fmt(Game.valueFor(it))}</em>
           <button class="btn btn-ghost btn-sm" data-action="gal-remove" data-id="${it.id}">İndir</button></figcaption></figure>`);
@@ -4140,6 +4160,16 @@ function houseActions() { return {
   'house-leave': () => { const c = HouseLive.cur; if (c && c.leader === 'player') { toast('En yüksek teklif sendeyken çekilemezsin.', 'warn'); return; } if (c) HouseLive.end(); },
   'gal-buy': () => { const r = Game.buyGallery(); toast(r.ok ? `${r.level.name} açıldı!` : r.msg, r.ok ? 'success' : 'warn'); renderCollection(); },
   'gal-place': el => { const r = Game.galleryPlace(el.dataset.id); toast(r.ok ? `${r.cat.name} galeride sergileniyor.` : r.msg, r.ok ? 'success' : 'warn'); renderCollection(); },
+  'gal-view': el => {
+    const it = DB.get('items', el.dataset.id); if (!it) return;
+    const c = Game.catalogOf(it), ex = it.appraised && it.authenticity === 'exceptional';
+    Modal.open(`<div class="modal-head"><h3>${esc(c.name)}</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>
+      <div class="modal-body gz-body">
+        <div class="gz-frame r-${c.rarity}"><img src="${artURL(c)}" alt="${esc(c.name)}" draggable="false"><i class="gx-shine"></i><i class="gx-spark s1"></i><i class="gx-spark s2"></i><i class="gx-spark s3"></i><i class="gx-spark s4"></i></div>
+        <div class="gz-cap"><b>${esc(c.name)}</b><span>${esc(c.era || '')}${ex ? ' · 💎 Müzelik' : ''}</span><em>${fmt(Game.valueFor(it))}</em>${c.description ? `<p>${esc(c.description)}</p>` : ''}</div>
+      </div>
+      <div class="modal-foot"><button class="btn btn-gold" data-action="close-modal">Kapat</button></div>`, { cls: 'gx-zoom' });
+  },
   'gal-remove': el => { const it = DB.get('items', el.dataset.id); if (it) DB.update('items', it.id, { status: 'inventory', display_slot: null }); Bus.emit('inventory'); Bus.emit('shop'); renderCollection(); }
 }; }
 
