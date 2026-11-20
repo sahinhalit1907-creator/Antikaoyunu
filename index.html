@@ -1392,6 +1392,24 @@ const Game = {
   // eski kayıtlara sonradan eklenen katalog eşyalarını (yeni oyuncaklar vb.) ekler
   syncCatalog() {
     let n = 0;
+    // koddan çıkarılmış eski eşyaları kayıttan da temizle (oyuncunun elindekiler korunur)
+    const valid = new Set(CATALOG.map(c => c[0])), pid = DB.meta.player_id;
+    const stale = new Set(DB.find('catalog_items', c => !valid.has(c.id)).map(c => c.id));
+    stale.forEach(cid => {
+      const its = DB.find('items', i => i.item_id === cid);
+      if (its.some(i => i.owner_type === 'player' && i.owner_id === pid)) return;   // oyuncunun eşyası: katalog satırı kalsın
+      const ids = new Set(its.map(i => i.id));
+      DB.find('market_listings', l => ids.has(l.item_instance_id)).forEach(l => DB.remove('market_listings', l.id));
+      DB.find('auctions', a => ids.has(a.item_instance_id)).forEach(a => DB.remove('auctions', a.id));
+      DB.find('house_lots', h => ids.has(h.item_instance_id)).forEach(h => DB.remove('house_lots', h.id));
+      DB.find('shop_offers', o => ids.has(o.item_instance_id)).forEach(o => DB.remove('shop_offers', o.id));
+      DB.find('orders', o => o.item_id === cid).forEach(o => DB.remove('orders', o.id));
+      DB.find('web_ads', a => a.item_id === cid || ids.has(a.item_instance_id)).forEach(a => DB.remove('web_ads', a.id));
+      its.forEach(i => DB.remove('items', i.id));
+      DB.remove('catalog_items', cid); n++;
+    });
+    // kayıtlı eşyaların ad/değer/açıklaması koddaki güncel hâliyle eşleşsin
+    CATALOG.forEach(c => { const r = DB.get('catalog_items', c[0]); if (r && (r.name !== c[1] || r.base_value !== c[5] || r.description !== c[7] || r.category !== c[2] || r.rarity !== c[4] || r.emoji !== c[3] || r.era !== c[6])) { Object.assign(r, { name: c[1], category: c[2], emoji: c[3], rarity: c[4], base_value: c[5], era: c[6], description: c[7] }); n++; } });
     CATALOG.forEach(c => { if (!DB.get('catalog_items', c[0])) { DB.insert('catalog_items', { id: c[0], name: c[1], category: c[2], emoji: c[3], image_url: null, rarity: c[4], base_value: c[5], era: c[6], description: c[7] }); n++; } });
     marketSellerRows().forEach(s => { if (!DB.get('npcs', s.id)) { DB.insert('npcs', { id: s.id, role: 'seller', name: s.name, avatar: s.avatar, trait: s.trait, quote: s.quote, market_id: s.market_id, traits: s.traits }); n++; } });
     if (n) DB.save();
