@@ -605,15 +605,17 @@ pre.sql{margin:0;padding:14px;border-radius:12px;background:#0a0c10;border:1px s
 .gx-zoomhint{position:absolute;right:6px;bottom:5px;font-size:.7rem;opacity:.75;background:rgba(0,0,0,.45);border-radius:10px;padding:1px 5px;pointer-events:none}
 .gx-zoom{max-width:720px}
 /* ---- Madeni para ön/arka çevirme ---- */
-.cflip{position:relative;display:block;width:100%;height:100%;perspective:900px;cursor:pointer}
-.cf-in{position:relative;display:block;width:100%;height:100%;transform-style:preserve-3d;transition:transform .65s cubic-bezier(.3,.7,.2,1)}
-.cflip.flipped .cf-in{transform:rotateY(180deg)}
-.cf-in img{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}
-.cf-in .cf-b{transform:rotateY(180deg)}
+.cflip{position:relative;display:block;width:100%;height:100%;cursor:pointer;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+.cf-in{position:relative;display:block;width:100%;height:100%;transition:transform .22s ease-in;transform:scaleX(1)}
+.cflip.turning .cf-in{transform:scaleX(0.02)}
+.cf-in img{position:absolute;inset:0}
+.cf-in .cf-b{display:none}
+.cflip.flipped .cf-f{display:none}
+.cflip.flipped .cf-b{display:block}
 .cf-tag{position:absolute;left:50%;bottom:4%;transform:translateX(-50%);font-size:.62rem;line-height:1;padding:3px 7px;border-radius:10px;background:rgba(0,0,0,.6);color:#f3e2b0;pointer-events:none;z-index:3;white-space:nowrap}
 .hm-coin{width:min(260px,72%);margin:0 auto;display:block}
 .cf-hint{font-size:.72rem;color:#b9b2a0;margin-top:4px}
-@media(prefers-reduced-motion:reduce){.cf-in{transition:none}}
+
 
 .gz-body{display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center}
 .gz-frame{position:relative;width:100%;box-sizing:border-box;padding:12px;border-radius:8px;overflow:hidden;background:linear-gradient(135deg,#f0d78a,#a77a25 45%,#e6c46b 70%,#7a5516);box-shadow:0 14px 34px rgba(0,0,0,.65),0 0 30px rgba(255,214,120,.35)}
@@ -4358,8 +4360,13 @@ function houseActions() { return {
   'album-page': el => { const a = Album.st(); a.page = Math.max(0, Math.min(a.pages - 1, (a.page || 0) + (+el.dataset.dir || 0))); DB.dirty(); renderCollection(); },
   'coin-buy': el => { const r = Album.buyCoin(el.dataset.id); toast(r.ok ? `${r.coin.name} defterine eklendi (${fmt(r.price)})` : r.msg, r.ok ? 'success' : 'warn'); renderCollection(); },
   'coin-flip': el => {
-    const f = el.closest('.cflip') || el; f.classList.toggle('flipped');
-    const t = f.querySelector('.cf-tag'); if (t) t.textContent = f.classList.contains('flipped') ? '↻ Arka yüz · çevirmek için dokun' : '↻ Ön yüz · çevirmek için dokun';
+    const f = el.closest('.cflip') || el; if (f.classList.contains('turning')) return;
+    f.classList.add('turning');
+    setTimeout(() => {
+      f.classList.toggle('flipped');
+      const t = f.querySelector('.cf-tag'); if (t) t.textContent = f.classList.contains('flipped') ? '↻ Arka yüz · çevirmek için dokun' : '↻ Ön yüz · çevirmek için dokun';
+      f.classList.remove('turning');
+    }, 230);
   },
   'coin-view': el => {
     const a = Album.st(), i = +el.dataset.slot, c = a.slots[i] && coinById(a.slots[i]); if (!c) return;
